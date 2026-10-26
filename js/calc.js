@@ -106,7 +106,7 @@
   /* Besichtigung + Präsentation vor dem Start; gibt frühesten Zeitpunkt auf der Wand zurück */
   function obsAndPres(r, sop, res, obsLen) {
     let first = sop;
-    if (r.presentation) {
+    if (r.presentation && r.phase === 'final') {
       const pause = num(r.presPause, 2), pd = num(r.presDur, 5);
       const ps = sop - pause - pd;
       res.events.push({ key: 'pres', t: ps, label: `Präsentation (${dur(pd)})` });
@@ -119,7 +119,7 @@
       res.events.push({ key: 'obs', t: os, label: `Gemeinsame Besichtigung (${dur(obsLen)})` });
       if (r.isOnsight && ob > num(r.isoClose, 30)) res.warnings.push(W('should', 'Besichtigung beginnt, bevor die Isolation schließt.', 'obs'));
       if (ob < obsLen) res.warnings.push(W('error', 'Besichtigung endet erst nach dem Start.', 'obs'));
-      if (r.presentation) {
+      if (r.presentation && r.phase === 'final') {
         const ps = sop - num(r.presPause, 2) - num(r.presDur, 5);
         if (os + obsLen > ps) res.warnings.push(W('should', 'Besichtigung überschneidet sich mit der Präsentation.', 'obs'));
       }
@@ -562,6 +562,18 @@
         // National nicht geregelt → international: 2 h (World Climbing Event Regulations, Annex C 4.7)
         else if (c.round.discipline === 'boulder' && gap < 120) c.warnings.push(W('should', `Nur ${dur(gap)} zwischen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}) und Start – international sind 2 Stunden vorgesehen (World Climbing, Boulder 4.7).`));
       }
+    });
+    // Aufwärmbereich öffnet einmal pro Tag (frühester Bedarf) und bleibt offen – spätere Kategorien nutzen diese Öffnung
+    const firstWarm = {};
+    results.forEach((x) => { const e = x.events.find((ev) => ev.key === 'warmup'); if (e && (firstWarm[x.round.day] == null || e.t < firstWarm[x.round.day])) firstWarm[x.round.day] = e.t; });
+    results.forEach((x) => {
+      const e = x.events.find((ev) => ev.key === 'warmup');
+      if (!e || x.sop == null) return;
+      e.t = firstWarm[x.round.day];
+      const open = x.sop - e.t;
+      x.warnings = x.warnings.filter((w) => w.at !== 'warmup');
+      if (open < 60) x.warnings.push(W('error', `Aufwärmbereich öffnet nur ${dur(open)} vor dem Start – nie später als 60 min (Allg. 6.4 A).`, 'warmup'));
+      else if (open < 90) x.warnings.push(W('should', `Aufwärmbereich öffnet nur ${dur(open)} vor dem Start – sollte ≥ 90 min sein (Allg. 6.4 A).`, 'warmup'));
     });
     results.forEach((x) => { x.partnerOf = partnerOf[x.id] || null; });
     return results;

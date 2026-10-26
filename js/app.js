@@ -103,7 +103,7 @@
     f += `<label class="nf">Tag (falls abweichend)<input type="date" value="${esc(r.day || '')}" data-k="day" data-id="${r.id}"></label>`;
     let h = '';
     if (d === 'boulder') h += row(`<div class="lab">Gemeinsame Besichtigung${seg(r, 'obsMode', OPT.obsMode)}</div>`);
-    if (d !== 'speed' || r.phase === 'final') h += row(`<label class="check"><input type="checkbox" data-k="presentation" data-id="${r.id}" data-struct="1"${r.presentation ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation vor den Medal Races' : 'Präsentation der Finalisten'}</label>`);
+    if (r.phase === 'final') h += row(`<label class="check"><input type="checkbox" data-k="presentation" data-id="${r.id}" data-struct="1"${r.presentation ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation vor den Medal Races' : 'Präsentation der Finalisten'}</label>`);
     return h + h0 + `<div class="fgrid">${f}</div>`;
   }
 

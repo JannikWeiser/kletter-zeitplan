@@ -97,7 +97,9 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
 
 - Hauptansicht: chronologische Ablauftabelle je Tag (druckbar, Warnungen optional mitdrucken).
 - Gleiche Punkte mehrerer Kategorien zur selben Zeit in einer Zeile (Aufwärmbereich, Isolation, Präsentation).
-- Öffnung Aufwärmbereich ist ein Hauptpunkt, kein Nebenpunkt.
+- Öffnung Aufwärmbereich ist ein Hauptpunkt, kein Nebenpunkt, und erscheint **einmal pro Tag** (frühester Bedarf); spätere Kategorien nutzen diese Öffnung.
+- Präsentation der Finalisten nur bei Finalrunden auswählbar.
+- Vorbild für die Darstellung: Ausschreibung BWJC 2026 – nach Blöcken (Tag + Kategorien) gegliedert, je Block nur Eckzeiten (z. B. „Qualifikation 09:00 bis 13:15“).
 - Start einer Runde: Uhrzeit oder **„im Anschluss an“** eine andere Runde + Wechsel-/Reinigungszeit
   (Besichtigung/Präsentation der Folgerunde beginnen erst nach dem Wechsel).
 - Wände/Bereiche anlegen und Runden zuordnen (Spalte „Wand“ im Plan). **Keine Belegungsprüfung** – mehrere Runden pro Wand gleichzeitig werden nicht gemeldet (Wunsch des Auftraggebers).
