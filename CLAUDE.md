@@ -100,7 +100,7 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
 - Öffnung Aufwärmbereich ist ein Hauptpunkt, kein Nebenpunkt.
 - Start einer Runde: Uhrzeit oder **„im Anschluss an“** eine andere Runde + Wechsel-/Reinigungszeit
   (Besichtigung/Präsentation der Folgerunde beginnen erst nach dem Wechsel).
-- Wände/Bereiche anlegen und Runden zuordnen → Belegungskonflikte als Regelverstoß.
+- Wände/Bereiche anlegen und Runden zuordnen (Spalte „Wand“ im Plan). **Keine Belegungsprüfung** – mehrere Runden pro Wand gleichzeitig werden nicht gemeldet (Wunsch des Auftraggebers).
 - Weitere Programmpunkte: Vorschläge nur **Registration** und **Technical Meeting** + eigener Punkt; optionale Endzeit.
 - Warnstufen: Regelverstoß (rot) · Ruhezeit unterschritten (orange) · Ruhezeit automatisch eingefügt
   (orange gestrichelt) · Empfehlung (gelb) · Hinweis (blau).

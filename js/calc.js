@@ -544,22 +544,6 @@
     }
     rounds.forEach((r) => resolve(r.id));
     const results = rounds.map((r) => out[r.id] || Object.assign(newRes(r), { warnings: [W('error', 'Startzeit hängt im Kreis von anderen Runden ab.')] }));
-    const wallName = (id) => (comp.walls.find((w) => w.id === id) || {}).name || '?';
-
-    // Wandbelegung
-    for (let i = 0; i < results.length; i++) for (let j = i + 1; j < results.length; j++) {
-      const a = results[i], b = results[j];
-      if (a.sop == null || b.sop == null || !a.occupy || !b.occupy) continue;
-      if (a.round.day !== b.round.day) continue;
-      if (partnerOf[a.id] === b.id || partnerOf[b.id] === a.id) continue;
-      const shared = (a.round.walls || []).filter((w) => (b.round.walls || []).includes(w));
-      if (!shared.length) continue;
-      if (a.occupy[0] < b.occupy[1] - 0.01 && b.occupy[0] < a.occupy[1] - 0.01) {
-        const names = shared.map(wallName).join(', ');
-        a.warnings.push(W('error', `Wand „${names}“ ist gleichzeitig mit ${label(b.round)} belegt (${fmt(b.occupy[0])}–${fmt(b.occupy[1])}).`));
-        b.warnings.push(W('error', `Wand „${names}“ ist gleichzeitig mit ${label(a.round)} belegt (${fmt(a.occupy[0])}–${fmt(a.occupy[1])}).`));
-      }
-    }
     // Rundenfolge je Kategorie
     const groups = {};
     results.forEach((x) => {
