@@ -31,7 +31,8 @@
     startMode: [['time', 'Uhrzeit'], ['after', 'im Anschluss an']],
     obsMode: [['none', 'keine'], ['per', '2 min je Boulder'], ['joint', '8 min gemeinsam']],
     lanes: [[2, 'Speed 2'], [4, 'Speed 4']],
-    bracket: [[4, '4'], [8, '8'], [16, '16'], [32, '32']],
+    bracket: [['auto', 'auto'], [4, '4'], [8, '8'], [16, '16'], [32, '32']],
+    presWhen: [['medal', 'vor den Medal Races'], ['semi', 'vor dem Halbfinale']],
   };
   const HINT = {
     interval: 'Je Intervall ein Starter neu, zwischen zwei Bouldern eine Pausen-Rotation',
@@ -78,8 +79,9 @@
       h += row(f);
       if (r.phase === 'final') {
         const others = comp.rounds.filter((x) => x.id !== r.id && x.discipline === 'speed' && x.phase === 'final');
-        const pair = others.length ? `<label class="nf">Verschränkt mit<select data-k="pairWith" data-id="${r.id}" data-struct="1"><option value="">– nicht verschränkt –</option>${others.map((x) => `<option value="${x.id}"${r.pairWith === x.id ? ' selected' : ''}>${esc(x.category || 'Ohne Kategorie')}</option>`).join('')}</select></label>` : '';
-        h += row(`<div class="lab">Wettkampfbaum${seg(r, 'bracket', OPT.bracket)}</div>` + pair);
+        const pairedBy = others.find((x) => x.pairWith === r.id && !r.pairWith);
+        const pair = pairedBy ? `<span class="hint">Verschränkt mit ${esc(pairedBy.category || 'Ohne Kategorie')} – diese Runde gibt die Startzeit vor.</span>` : others.length ? `<label class="nf">Verschränkt mit<select data-k="pairWith" data-id="${r.id}" data-struct="1"><option value="">– nicht verschränkt –</option>${others.map((x) => `<option value="${x.id}"${r.pairWith === x.id ? ' selected' : ''}>${esc(x.category || 'Ohne Kategorie')}</option>`).join('')}</select></label>` : '';
+        h += row(`<div class="lab">Wettkampfbaum${seg(r, 'bracket', OPT.bracket.filter(([v]) => v !== 32 || Number(r.lanes) === 4))}</div>` + pair);
       }
     }
     return h;
@@ -89,6 +91,7 @@
     const d = r.discipline;
     const onsight = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.sight === 'onsight');
     const hasObs = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.obsMode && r.obsMode !== 'none');
+    let h0 = '';
     let f = numf(r, 'warmup', 'Aufwärmen öffnet vorher', 'min', 5);
     if (onsight) f += numf(r, 'isoClose', 'Isolation schließt vorher', 'min', 5);
     if (hasObs) f += numf(r, 'obsBefore', 'Besichtigung beginnt vorher', 'min');
@@ -96,11 +99,12 @@
     if (d === 'lead' && Number(r.starters) > 22) f += numf(r, 'cleanEvery', 'Reinigung alle', 'Starter') + numf(r, 'cleanDur', 'Dauer Reinigung', 'min');
     if (d === 'speed' && r.phase === 'final') f += numf(r, 'phaseBreak', 'Pause zw. Phasen', 'min');
     if (r.presentation) f += numf(r, 'presDur', 'Präsentation', 'min') + numf(r, 'presPause', 'Pause bis Start', 'min');
+    if (d === 'speed' && r.phase === 'final' && r.presentation) h0 = row(`<div class="lab">Präsentation${seg(r, 'presWhen', OPT.presWhen)}</div>`);
     f += `<label class="nf">Tag (falls abweichend)<input type="date" value="${esc(r.day || '')}" data-k="day" data-id="${r.id}"></label>`;
     let h = '';
     if (d === 'boulder') h += row(`<div class="lab">Gemeinsame Besichtigung${seg(r, 'obsMode', OPT.obsMode)}</div>`);
     if (d !== 'speed' || r.phase === 'final') h += row(`<label class="check"><input type="checkbox" data-k="presentation" data-id="${r.id}" data-struct="1"${r.presentation ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation vor den Medal Races' : 'Präsentation der Finalisten'}</label>`);
-    return h + `<div class="fgrid">${f}</div>`;
+    return h + h0 + `<div class="fgrid">${f}</div>`;
   }
 
   function startRow(r) {
@@ -479,8 +483,8 @@
     const bf = R('boulder', 'final', { category: 'U15', start: '15:00', starters: 8, walls: ['wb'] });
     const sq1 = R('speed', 'quali', { category: 'Damen', start: '16:00', starters: 12, walls: ['ws'] });
     const sq2 = R('speed', 'quali', { category: 'Herren', startMode: 'after', afterId: sq1.id, afterGap: 5, starters: 16, walls: ['ws'] });
-    const sf1 = R('speed', 'final', { category: 'Damen', start: '17:30', bracket: 8, walls: ['ws'] });
-    const sf2 = R('speed', 'final', { category: 'Herren', bracket: 16, pairWith: sf1.id, walls: ['ws'] });
+    const sf1 = R('speed', 'final', { category: 'Damen', start: '17:30', walls: ['ws'] });
+    const sf2 = R('speed', 'final', { category: 'Herren', pairWith: sf1.id, walls: ['ws'] });
     return {
       name: 'Beispiel Landesmeisterschaft', date, walls,
       rounds: [lq1, lq2, bq, bf, sq1, sq2, sf1, sf2],

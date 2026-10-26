@@ -68,7 +68,7 @@
     }
     return Object.assign(base, {
       speedFormat: phase === 'final' ? 'final' : phase === 'training' ? 'training' : 'quali',
-      lanes: 2, raceTime: 1, phaseBreak: 5, bracket: 8, trainDur: 0, pairWith: '',
+      lanes: 2, raceTime: 1, phaseBreak: 5, bracket: 'auto', presWhen: 'medal', trainDur: 0, pairWith: '',
       starters: phase === 'final' ? 8 : 20,
     });
   }
@@ -319,88 +319,116 @@
   }
 
   /* ---------- SPEED ---------- */
+  /* Finalquote aus der Starterzahl der Quali (Speed 2.3) */
+  function speedQuota(n, lanes) {
+    if (lanes === 4 && n >= 32) return 32;
+    if (n >= 16) return 16;
+    if (n >= 8) return 8;
+    if (n >= 4) return 4;
+    return 0;
+  }
+
+  /* Quali/Training: jeder Athlet einmal je Lane, Startreihenfolge je Lane um n/L versetzt (Speed 2.2).
+     n Starter → n Races. Fehlen die 5 min Ruhezeit (Speed 4.2 C), wird eine Pause eingefügt. */
   function speedQuali(r, sop, res, label) {
     const n = Math.max(0, Math.round(num(r.starters, 0)));
     const L = Number(r.lanes) === 4 ? 4 : 2;
     const rt = num(r.raceTime, 1);
     const shift = Math.floor(n / L);
-    let minGap = Infinity;
+    const racesOf = (a) => { const out = []; for (let l = 0; l < L; l++) out.push((a + l * shift) % n); return out; };
+    const at = (j, p, E) => (j >= p ? j * rt + E : j * rt);
+    const minGapFor = (p, E) => {
+      let min = Infinity;
+      for (let a = 0; a < n; a++) {
+        const t = racesOf(a).map((j) => at(j, p, E)).sort((x, y) => x - y);
+        for (let i = 1; i < t.length; i++) min = Math.min(min, t[i] - t[i - 1] - rt);
+      }
+      return min;
+    };
+    let P = n, E = 0;
+    const gap0 = n > 1 ? minGapFor(n, 0) : Infinity;
+    const check = label === 'Start';
+    if (check && gap0 < 5) {
+      // kleinste Pause (1-min-Raster) an der besten Stelle suchen
+      search: for (E = 1; E <= 60; E++) for (let p = 1; p < n; p++) if (minGapFor(p, E) >= 5) { P = p; break search; }
+      if (P === n) E = 0;
+    }
     const rows = [];
-    for (let a = 0; a < n; a++) {
-      const races = [];
-      for (let l = 0; l < L; l++) races.push((a + l * shift) % n);
-      const sorted = races.slice().sort((x, y) => x - y);
-      for (let i = 1; i < sorted.length; i++) minGap = Math.min(minGap, (sorted[i] - sorted[i - 1]) * rt - rt);
-      rows.push([a + 1].concat(races.map((j) => fmt(sop + j * rt))));
+    for (let a = 0; a < n; a++) rows.push([a + 1].concat(racesOf(a).map((j) => fmt(sop + at(j, P, E)))));
+    res.events.push({ key: 'sop', t: sop, label: `${label} (${n} Starter · ${pl(n, 'Race', 'Races')} · ${dur(rt)}/Race)` });
+    res.end = sop + n * rt + (P < n ? E : 0);
+    if (check && P < n) {
+      res.events.push({ key: 'pause', t: sop + P * rt, label: `Pause (${dur(E)}) nach Race ${P}` });
+      res.warnings.push(W('auto', `5-min-Ruhezeit eingefügt: ${dur(E)} Pause nach Race ${P}, sonst nur ${dur(gap0)} zwischen zwei Races eines Athleten (Speed 4.2 C).`, 'pause'));
+    } else if (check && gap0 < 5) {
+      res.warnings.push(W('rest', `Pause zwischen zwei Races eines Athleten nur ${dur(gap0)} statt 5 min (Speed 4.2 C). Mehr Zeit pro Race einplanen.`));
     }
-    res.events.push({ key: 'sop', t: sop, label: `${label} (${n} Starter · ${n} Races · ${dur(rt)}/Race)` });
-    res.end = sop + n * rt;
-    if (n > 1 && minGap < 5 && label === 'Start') {
-      res.warnings.push(W('rest', `Pause zwischen zwei Races eines Athleten nur ${dur(minGap)} statt 5 min (Speed 4.2 C). Mehr Zeit pro Race einplanen.`));
-    }
-    res.detail = { cols: ['Startplatz'].concat(['A', 'B', 'C', 'D'].slice(0, L).map((x) => 'Lane ' + x)), rows };
+    res.detail = { cols: ['Startplatz Lane A'].concat(['A', 'B', 'C', 'D'].slice(0, L).map((x) => 'Lane ' + x)), rows };
   }
 
   function speedPhases(r) {
     const L = Number(r.lanes) === 4 ? 4 : 2;
-    let size = Number(r.bracket) || 8;
+    let size = Number(r._bracket || r.bracket) || 8;
     const phases = [];
+    const names = { 32: 'Achtelfinale', 16: 'Viertelfinale', 8: 'Halbfinale' }; // Speed 4: Races à 4
     if (L === 2) {
       while (size > 4) { phases.push({ name: size === 32 ? '1/16-Finale' : size === 16 ? 'Achtelfinale' : 'Viertelfinale', races: size / 2 }); size /= 2; }
-      phases.push({ name: 'Halbfinale', races: 2 });
+      phases.push({ name: 'Halbfinale', races: 2, semi: true });
       phases.push({ name: 'Kleines + großes Finale', races: 2, medal: true, fromAll: true });
     } else {
-      // Speed 4: Races à 4, die besten 2 kommen weiter, ein Medal Race
-      while (size > 4) { phases.push({ name: `Runde der ${size}`, races: size / 4 }); size /= 2; }
+      // Speed 4: die besten 2 je Race kommen weiter, ein Medal Race
+      while (size > 4) { phases.push({ name: names[size] || `Runde der ${size}`, races: size / 4, semi: size === 8 }); size /= 2; }
       phases.push({ name: 'Finale (Medal Race)', races: 1, medal: true, fromAll: true });
     }
     return phases;
   }
 
-  /* Finale einer oder zweier verschränkter Kategorien (Phasen abwechselnd, am Finale ausgerichtet) */
+  /* Finale einer oder zweier verschränkter Kategorien (Phasen abwechselnd, am Finale ausgerichtet).
+     Reicht die Pause zwischen zwei Phasen nicht für 5 min Ruhezeit, wird sie verlängert. */
   function speedFinals(items, sop) {
     const brk = num(items[0].r.phaseBreak, 5);
-    items.forEach((it) => { it.phases = speedPhases(it.r); it.rt = num(it.r.raceTime, 1); });
+    items.forEach((it) => { it.phases = speedPhases(it.r); it.rt = num(it.r.raceTime, 1); it.ext = []; });
     const len = Math.max.apply(null, items.map((it) => it.phases.length));
     const seq = [];
     for (let i = 0; i < len; i++) {
       items.forEach((it) => {
         const idx = i - (len - it.phases.length);
-        if (idx >= 0) seq.push({ it, ph: it.phases[idx], first: idx === 0 });
+        if (idx >= 0) seq.push({ it, ph: it.phases[idx], idx });
       });
     }
+    const presAt = (r, ph) => r.presentation && ((r.presWhen === 'semi') ? ph.semi : ph.medal);
     let t = sop;
     seq.forEach((x, n) => {
-      const { it, ph } = x;
+      const { it, ph, idx } = x;
       const r = it.r, res = it.res;
-      const pre = '';
       if (n > 0) t += brk;
-      const firstMedal = ph.medal && !seq.slice(0, n).some((y) => y.ph.medal);
-      if (items.length > 1 && firstMedal && items.some((y) => y.r.presentation)) {
-        const pd = Math.max.apply(null, items.map((y) => num(y.r.presDur, 5)));
-        items.forEach((y) => y.res.events.push({ key: 'pres', t, label: `Präsentation Finalisten (${dur(pd)})` }));
-        t += pd + num(r.presPause, 2);
-      } else if (items.length === 1 && ph.medal && r.presentation) {
-        const pd = num(r.presDur, 5);
-        res.events.push({ key: 'pres', t, label: `${pre}Präsentation Finalisten (${dur(pd)})` });
+      // gemeinsame Präsentation vor der ersten passenden Phase (bei Verschränkung einmal für beide)
+      const due = items.filter((y) => !y.presDone && y.phases.some((p2) => presAt(y.r, p2)) && (y === it ? presAt(r, ph) : false));
+      if (due.length) {
+        const both = items.length > 1 && items.every((y) => !y.presDone && y.r.presentation && (y.r.presWhen || 'medal') === (r.presWhen || 'medal'));
+        const pd = Math.max.apply(null, (both ? items : due).map((y) => num(y.r.presDur, 5)));
+        const label = r.presWhen === 'semi' ? 'Präsentation Halbfinalisten' : 'Präsentation Finalisten';
+        (both ? items : due).forEach((y) => { y.presDone = true; y.res.events.push({ key: 'pres', t, label: `${label} (${dur(pd)})` }); });
         t += pd + num(r.presPause, 2);
       }
+      // 5 min Ruhezeit zur vorherigen Phase derselben Kategorie (Speed 4.2 C)
+      if (idx > 0) {
+        const prev = it.phases[idx - 1];
+        let need = t;
+        for (let j = 0; j < ph.races; j++) {
+          const src = ph.fromAll ? prev.races - 1 : Math.min(prev.races - 1, 2 * j + 1);
+          need = Math.max(need, prev.start + (src + 1) * it.rt + 5 - j * it.rt);
+        }
+        if (need > t + 0.001) { it.ext.push(`${ph.name} +${dur(need - t)}`); t = need; }
+      }
       ph.start = t;
-      if (x.first) { res.sop = t; res.events.push({ key: 'sop', t, label: `${pre}Start Finale (Wettkampfbaum ${Number(r.bracket) || 8}) · ${ph.name}` }); }
-      else res.events.push({ key: 'phase', t, label: `${pre}${ph.name} (${pl(ph.races, 'Race', 'Races')})`, minor: !ph.medal && items.length === 1 });
+      if (idx === 0) { res.sop = t; res.events.push({ key: 'sop', t, label: `Start Finale (Wettkampfbaum ${Number(r._bracket || r.bracket) || 8}) · ${ph.name}` }); }
+      else res.events.push({ key: 'phase' + idx, t, label: `${ph.name} (${pl(ph.races, 'Race', 'Races')})`, minor: !ph.medal && items.length === 1 });
       t += ph.races * it.rt;
       res.end = t;
     });
     items.forEach((it) => {
-      let minGap = Infinity;
-      for (let i = 1; i < it.phases.length; i++) {
-        const prev = it.phases[i - 1], ph = it.phases[i];
-        for (let j = 0; j < ph.races; j++) {
-          const src = ph.fromAll ? prev.races - 1 : Math.min(prev.races - 1, 2 * j + 1);
-          minGap = Math.min(minGap, (ph.start + j * it.rt) - (prev.start + (src + 1) * it.rt));
-        }
-      }
-      if (minGap < 5) it.res.warnings.push(W('rest', `Pause zwischen zwei Races eines Athleten im Wettkampfbaum nur ${dur(minGap)} statt 5 min (Speed 4.2 C). Pause zwischen den Phasen erhöhen.`));
+      if (it.ext.length) it.res.warnings.push(W('auto', `5-min-Ruhezeit eingefügt: Pause verlängert vor ${it.ext.join(', ')} (Speed 4.2 C).`));
       it.res.detail = { cols: ['Phase', 'Beginn', 'Races'], rows: it.phases.map((p) => [p.name, fmt(p.start), p.races]) };
       it.res.first = it.res.sop;
     });
@@ -414,7 +442,10 @@
       if (num(r.trainDur, 0) > 0) {
         res.events.push({ key: 'sop', t: sop, label: `Start Training (${dur(num(r.trainDur, 0))})` });
         res.end = sop + num(r.trainDur, 0);
-      } else speedQuali(r, sop, res, 'Start Training');
+      } else {
+        speedQuali(r, sop, res, 'Start Training');
+        if (Number(r.lanes) === 4) res.warnings.push(W('info', 'Speed 4: Das Training findet nicht im Quali-Format statt (Speed 4.1) – bitte eine feste Dauer eingeben.'));
+      }
     } else if (sf === 'quali') speedQuali(r, sop, res, 'Start');
     else speedFinals([{ r, res }], sop);
   }
@@ -464,6 +495,15 @@
       const p = byId[r.pairWith];
       if (isSpeedFinal(r) && isSpeedFinal(p) && p.id !== r.id && !partnerOf[r.id] && !partnerOf[p.id] && !hasPartner[p.id] && !hasPartner[r.id]) { partnerOf[r.id] = p.id; hasPartner[p.id] = true; }
     });
+    // Wettkampfbaum „auto“: Quote aus der Speed-Quali derselben Kategorie (Speed 2.3)
+    rounds.forEach((r) => {
+      if (!isSpeedFinal(r)) return;
+      const q = rounds.find((x) => x.discipline === 'speed' && x.phase === 'quali' && (x.category || '').trim().toLowerCase() === (r.category || '').trim().toLowerCase());
+      const quota = q ? speedQuota(Math.round(num(q.starters, 0)), Number(q.lanes) === 4 ? 4 : 2) : null;
+      r._bracket = (r.bracket === 'auto' || r.bracket == null) ? (quota || 8) : Number(r.bracket);
+      r._quotaWarn = quota != null && r._bracket > quota ? quota : null;
+      r._noQuali = (r.bracket === 'auto' || r.bracket == null) && !quota;
+    });
     const out = {}, busy = new Set();
 
     function resolve(id) {
@@ -493,6 +533,11 @@
         res.events.push({ key: 'change', t: afterNote.t, label: `Wechsel / Reinigung (${dur(afterNote.gap)}) nach ${label(afterNote.ref.round)}`, minor: true });
         res.afterOf = afterNote.ref.id;
       } else if (r.startMode === 'after') res.warnings.push(W('error', 'Vorherige Runde für „im Anschluss an“ fehlt oder hat keine Startzeit.'));
+      [res].concat(partner ? [out[partner.id]] : []).forEach((x) => {
+        const rr = x.round;
+        if (rr._quotaWarn) x.warnings.push(W('should', `Wettkampfbaum ${rr._bracket} ist größer als die Quote aus der Quali (${rr._quotaWarn}, Speed 2.3).`));
+        if (rr._noQuali) x.warnings.push(W('info', 'Keine Speed-Quali dieser Kategorie gefunden – Wettkampfbaum 8 angenommen.'));
+      });
       out[id] = res;
       busy.delete(id);
       return res;
