@@ -95,7 +95,7 @@
   /* ---------- Runden ---------- */
   function newRound(discipline) {
     const phase = 'quali';
-    const r = Object.assign({ id: uid(), discipline, phase, category: '', youth: false, day: '', start: '10:00', walls: [] }, C.defaults(discipline, phase));
+    const r = Object.assign({ id: uid(), discipline, phase, category: '', day: '', start: '10:00', walls: [] }, C.defaults(discipline, phase));
     if (comp.walls.length === 1) r.walls = [comp.walls[0].id];
     return r;
   }
@@ -134,8 +134,7 @@
           <div class="badges" data-badges></div>
         </div>
         <div class="round-body">
-          ${row(`<input type="text" class="cat-in" value="${esc(r.category)}" data-k="category" data-id="${r.id}" placeholder="Kategorie, z. B. U17 männlich" aria-label="Kategorie">
-            <button type="button" class="wchip${r.youth ? ' on' : ''}" data-seg="youth" data-val="${!r.youth}" data-id="${r.id}" title="Jugend: Ende bis 20:00 Uhr">Jugend</button>`)}
+          ${row(`<input type="text" class="cat-in" value="${esc(r.category)}" data-k="category" data-id="${r.id}" placeholder="Kategorie, z. B. U17 männlich" aria-label="Kategorie">`)}
           ${row(seg(r, 'phase', phaseOpts) + `<label class="nf">Start of Play<input type="time" value="${esc(r.start)}" data-k="start" data-id="${r.id}"></label>` + (showStarters ? numf(r, 'starters', 'Starter', '') : ''))}
           ${essentials(r)}
           <div class="frow walls-row"><span class="lab-inline">Wand</span>${walls}</div>
@@ -438,15 +437,15 @@
   function example() {
     const date = today();
     const walls = [{ id: 'wl', name: 'Lead-Wand' }, { id: 'wb', name: 'Boulderbereich' }, { id: 'ws', name: 'Speed-Wand' }];
-    const R = (discipline, phase, o) => Object.assign({ id: uid(), discipline, phase, category: '', youth: false, day: '', walls: [] }, C.defaults(discipline, phase), o);
+    const R = (discipline, phase, o) => Object.assign({ id: uid(), discipline, phase, category: '', day: '', walls: [] }, C.defaults(discipline, phase), o);
     return {
       name: 'Beispiel Landesmeisterschaft', date, walls,
       rounds: [
-        R('lead', 'quali', { category: 'U17 männlich', youth: true, start: '09:30', starters: 4, walls: ['wl'] }),
+        R('lead', 'quali', { category: 'U17 männlich', start: '09:30', starters: 4, walls: ['wl'] }),
         R('lead', 'quali', { category: 'Damen', start: '11:00', starters: 26, walls: ['wl'] }),
-        R('lead', 'final', { category: 'U17 männlich', youth: true, start: '15:00', starters: 4, walls: ['wl'] }),
-        R('boulder', 'quali', { category: 'U15', youth: true, start: '09:30', starters: 18, walls: ['wb'] }),
-        R('boulder', 'final', { category: 'U15', youth: true, start: '14:00', starters: 6, isoClose: 20, walls: ['wb'] }),
+        R('lead', 'final', { category: 'U17 männlich', start: '15:00', starters: 4, walls: ['wl'] }),
+        R('boulder', 'quali', { category: 'U15', start: '09:30', starters: 18, walls: ['wb'] }),
+        R('boulder', 'final', { category: 'U15', start: '14:00', starters: 6, isoClose: 20, walls: ['wb'] }),
         R('speed', 'training', { category: 'Alle', start: '16:00', starters: 16, walls: ['ws'] }),
         R('speed', 'quali', { category: 'Herren', start: '16:30', starters: 16, walls: ['ws'] }),
         R('speed', 'final', { category: 'Herren', start: '17:30', bracket: 8, presentation: true, walls: ['ws'] }),
