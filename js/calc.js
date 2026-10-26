@@ -37,7 +37,7 @@
     if (discipline === 'lead') {
       return Object.assign(base, {
         leadFormat: phase === 'quali' ? 'flash2' : 'onsight',
-        attempt: 5, route2Offset: 0, cleanEvery: 20, cleanDur: 10, obsBefore: 20,
+        attempt: 5, routeMode: 'par', cleanEvery: 20, cleanDur: 10, obsBefore: 20,
         starters: phase === 'quali' ? 30 : phase === 'semi' ? 24 : 8,
       });
     }
@@ -46,7 +46,7 @@
       return Object.assign(base, {
         boulderFormat: fin ? 'parallel' : 'interval',
         sight: phase === 'quali' ? 'flash' : 'onsight',
-        boulders: fin ? 4 : 5, interval: fin ? 4 : 5, setSize: 3, setGap: 0,
+        boulders: fin ? 4 : 5, interval: fin ? 4 : 5, restRot: false, setSize: 3, setGap: 0,
         active: 2, rotation: 5, blockBreak: 0, jamDur: 120,
         obsMode: fin ? 'per' : 'none', obsBefore: 20,
         starters: phase === 'quali' ? 30 : phase === 'semi' ? 24 : 8,
@@ -133,7 +133,8 @@
     const rows = [];
     if (fmtL === 'flash2') {
       const k = Math.floor(n / 2);
-      const off = num(r.route2Offset, 0);
+      const seq = r.routeMode === 'seq';
+      const base = seq ? routeLen + (cleaning ? cleanDur : 0) : 0;
       const restFor = (o) => {
         let min = Infinity;
         for (let p = 0; p < n; p++) {
@@ -144,25 +145,23 @@
         }
         return min;
       };
+      // 50 min Ruhezeit (Lead 4.4): Route 2 automatisch so weit verschieben wie nötig (5-min-Raster)
+      let off = base;
+      if (n > 1 && restFor(off) < 50) {
+        while (restFor(off) < 50 && off < 24 * 60) off += 5;
+        res.warnings.push(W('auto', `50-min-Ruhezeit eingefügt: Route 2 startet ${seq ? dur(off - base) + ' nach Ende von Route 1' : dur(off) + ' nach Route 1'} (${fmt(sop + off)}), sonst nur ${dur(restFor(base))} Pause (Lead 4.4).`, 'r2'));
+      }
       for (let p = 0; p < n; p++) {
         const q = (p - k + n) % n;
         const a = sop + slot(p), b = sop + off + slot(q);
         const rest = a <= b ? b - (a + s) : a - (b + s);
         rows.push({ nr: p + 1, r1: a, r1pos: p + 1, r2: b, r2pos: q + 1, rest });
       }
-      const minRest = n > 1 ? restFor(off) : Infinity;
       res.events.push({ key: 'sop', t: sop, label: off ? `Start of Play Route 1 (${n} Starter)` : `Start of Play Route 1 + 2 (${n} Starter)` });
-      if (off) res.events.push({ key: 'r2', t: sop + off, label: 'Start Route 2', minor: true });
+      if (off) res.events.push({ key: 'r2', t: sop + off, label: 'Start Route 2' });
       cleanEvents(0, 'Route 1'); cleanEvents(off, 'Route 2');
+      if (seq && cleaning) res.events.push({ key: 'clean', t: sop + routeLen, label: `Reinigung (${dur(cleanDur)}) zwischen Route 1 und 2`, minor: true });
       res.end = sop + Math.max(routeLen, off + routeLen);
-      if (n > 1 && minRest < 50) {
-        let sug = null;
-        for (let o = 0; o <= 24 * 60; o += 5) { if (restFor(o) >= 50) { sug = o; break; } }
-        const txt = `Ruhezeit zwischen Route 1 und 2 nur ${dur(minRest)} statt 50 min (Lead 4.4).` +
-          (sug != null ? ` Vorschlag: Route 2 um ${dur(sug)} versetzt starten → Ende ${fmt(sop + Math.max(routeLen, sug + routeLen))}.` : '');
-        res.warnings.push(W('rest', txt, 'sop'));
-        res.suggest = sug != null ? { field: 'route2Offset', value: sug, label: `Route 2 +${dur(sug)}` } : null;
-      }
       res.detail = { cols: ['Startplatz R1', 'Route 1', 'Startplatz R2', 'Route 2', 'Pause'], rows: rows.map((x) => [x.r1pos, fmt(x.r1), x.r2pos, fmt(x.r2), { v: dur(x.rest), warn: x.rest < 50 }]) };
     } else {
       res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter)` });
@@ -189,11 +188,16 @@
 
     if (bf === 'interval') {
       const I = num(r.interval, 5), rot = I + CH;
-      const R = n + B - 1;
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter · ${B} Boulder · ${I} min + 15 s)` });
+      // Mit Pausen-Rotation: Boulder in jeder zweiten Rotation (Schema World Climbing / Judge Guide 5.2)
+      const step = r.restRot ? 2 : 1;
+      const R = n + (B - 1) * step;
+      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter · ${B} Boulder · ${I} min + 15 s${r.restRot ? ' · mit Pausen-Rotation' : ''})` });
       res.end = n ? sop + R * rot - CH : sop;
       res.info = `${R} Rotationen à ${I} min + 15 s`;
-      res.detail = { cols: ['Startplatz', 'Start Boulder 1', `Ende Boulder ${B}`], rows: Array.from({ length: n }, (_, i) => [i + 1, fmt(sop + i * rot, true), fmt(sop + (i + B) * rot - CH, true)]) };
+      const cols = ['Startplatz'];
+      for (let b = 0; b < B; b++) cols.push('B' + (b + 1));
+      cols.push('Ende');
+      res.detail = { cols, rows: Array.from({ length: n }, (_, i) => [i + 1].concat(Array.from({ length: B }, (_, b) => fmt(sop + (i + b * step) * rot, true)), [fmt(sop + (i + (B - 1) * step + 1) * rot - CH, true)])) };
     } else if (bf === 'flash2sets') {
       const I = num(r.interval, 4), rot = I + CH;
       const b = Math.max(1, Math.round(num(r.setSize, 3)));
@@ -379,6 +383,8 @@
         const gap = c.sop - p.result;
         if (gap < 0) c.warnings.push(W('error', `Start vor dem voraussichtlichen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}).`));
         else if (c.round.discipline === 'lead' && gap < 60) c.warnings.push(W('error', `Nur ${dur(gap)} zwischen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}) und Start of Play – mindestens 1 Stunde (Lead 4.5).`));
+        // National nicht geregelt → international: 2 h (World Climbing Event Regulations, Annex C 4.7)
+        else if (c.round.discipline === 'boulder' && gap < 120) c.warnings.push(W('should', `Nur ${dur(gap)} zwischen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}) und Start of Play – international sind 2 Stunden vorgesehen (World Climbing, Boulder 4.7).`));
       }
     });
     return results;

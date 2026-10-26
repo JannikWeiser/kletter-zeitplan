@@ -10,84 +10,85 @@
 
   let comp = load() || emptyComp();
   const open = new Set();
+  const openMore = new Set();
   let results = [];
 
   function emptyComp() { return { name: '', date: today(), walls: [], rounds: [] }; }
   function load() { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(comp)); } catch (e) { /* privater Modus */ } }
 
-  /* ---------- Feld-Definitionen je Disziplin ---------- */
-  const SEL = {
-    phaseLead: [['quali', 'Qualifikation'], ['semi', 'Halbfinale'], ['final', 'Finale']],
-    phaseSpeed: [['training', 'Training'], ['quali', 'Qualifikation'], ['final', 'Finale']],
-    leadFormat: [['flash2', 'Flash · 2 Routen (versetzt)'], ['flash1', 'Flash · 1 Route'], ['onsight', 'On Sight · 1 Route']],
-    boulderFormat: [['interval', 'Intervall (fix)'], ['flash2sets', 'Flash · 2 Sets (z. B. Jugendcup 2×3)'], ['parallel', 'Finale · Boulder parallel (Rotation frei)'], ['jam', 'JAM (Gesamtdauer)']],
-    sight: [['onsight', 'On Sight (Isolation)'], ['flash', 'Flash (Routendemo)']],
-    obsMode: [['none', 'Keine'], ['per', '2 min pro Boulder'], ['joint', '8 min gemeinsam']],
-    lanes: [['2', 'Speed 2 (2 Lanes)'], ['4', 'Speed 4 (4 Lanes)']],
-    bracket: [['4', '4'], ['8', '8'], ['16', '16'], ['32', '32 (nur Speed 4)']],
+  /* ---------- Bausteine der Eingabe ---------- */
+  const OPT = {
+    phaseLead: [['quali', 'Quali'], ['semi', 'Halbfinale'], ['final', 'Finale']],
+    phaseSpeed: [['training', 'Training'], ['quali', 'Quali'], ['final', 'Finale']],
+    leadFormat: [['flash2', 'Flash · 2 Routen'], ['flash1', 'Flash · 1 Route'], ['onsight', 'On Sight']],
+    routeMode: [['par', 'parallel'], ['seq', 'nacheinander']],
+    boulderFormat: [['interval', 'Intervall'], ['flash2sets', '2 Sets'], ['parallel', 'Parallel'], ['jam', 'JAM']],
+    sight: [['onsight', 'On Sight'], ['flash', 'Flash']],
+    restRot: [[false, 'ohne Pause'], [true, 'mit Pausen-Rotation']],
+    obsMode: [['none', 'keine'], ['per', '2 min je Boulder'], ['joint', '8 min gemeinsam']],
+    lanes: [[2, 'Speed 2'], [4, 'Speed 4']],
+    bracket: [[4, '4'], [8, '8'], [16, '16'], [32, '32']],
+  };
+  const HINT = {
+    interval: 'Fixes Intervall + 15 s Wechsel, ein Starter pro Rotation neu',
+    flash2sets: 'Zwei Gruppen tauschen die Sets, ≥ 3 Rotationen Erholung',
+    parallel: 'Finale: mehrere Boulder gleichzeitig, Rotationszeit frei',
+    jam: 'Feste Gesamtdauer, keine Rotationen',
   };
 
-  function fieldsFor(r) {
-    const f = [];
+  function seg(r, k, opts) {
+    return `<div class="seg" role="group">${opts.map(([v, t]) => `<button type="button" class="${String(r[k]) === String(v) ? 'on' : ''}" data-seg="${k}" data-val="${v}" data-id="${r.id}">${esc(t)}</button>`).join('')}</div>`;
+  }
+  function numf(r, k, label, unit, step) {
+    return `<label class="nf">${esc(label)}<span class="num"><input type="number" inputmode="decimal" min="0" step="${step || 1}" value="${esc(r[k])}" data-k="${k}" data-id="${r.id}"${k === 'starters' ? ' data-struct-num="1"' : ''}>${unit ? `<em>${unit}</em>` : ''}</span></label>`;
+  }
+  const row = (html) => `<div class="frow">${html}</div>`;
+
+  function essentials(r) {
     const d = r.discipline;
+    let h = '';
     if (d === 'lead') {
-      f.push({ group: 'Format', items: [
-        { k: 'leadFormat', l: 'Format', t: 'select', o: SEL.leadFormat, wide: true },
-        { k: 'attempt', l: 'Ø Dauer pro Versuch (min)', t: 'num', step: 0.5 },
-        r.leadFormat === 'flash2' && { k: 'route2Offset', l: 'Route 2 startet später um (min)', t: 'num', step: 5 },
-      ] });
-      if (Number(r.starters) > 22) f.push({ group: 'Routenreinigung (> 22 Starter)', items: [
-        { k: 'cleanEvery', l: 'Reinigung alle … Starter', t: 'num' },
-        { k: 'cleanDur', l: 'Dauer Reinigung (min)', t: 'num' },
-      ] });
+      h += row(seg(r, 'leadFormat', OPT.leadFormat));
+      h += row((r.leadFormat === 'flash2' ? `<div class="lab">Routen${seg(r, 'routeMode', OPT.routeMode)}</div>` : '') + numf(r, 'attempt', 'Ø Versuch', 'min', 0.5));
     } else if (d === 'boulder') {
       const bf = r.boulderFormat;
-      f.push({ group: 'Format', items: [
-        { k: 'boulderFormat', l: 'Format', t: 'select', o: SEL.boulderFormat, wide: true },
-        { k: 'sight', l: 'Modus', t: 'select', o: SEL.sight },
-        bf !== 'flash2sets' && bf !== 'jam' && { k: 'boulders', l: 'Anzahl Boulder', t: 'num' },
-        (bf === 'interval' || bf === 'flash2sets') && { k: 'interval', l: 'Intervall (min, + 15 s Wechsel)', t: 'num', step: 0.5 },
-        bf === 'flash2sets' && { k: 'setSize', l: 'Boulder pro Set', t: 'num' },
-        bf === 'flash2sets' && { k: 'setGap', l: 'Leer-Rotationen zwischen Sets', t: 'num' },
-        bf === 'parallel' && { k: 'active', l: 'Boulder gleichzeitig', t: 'num' },
-        bf === 'parallel' && { k: 'rotation', l: 'Rotationszeit (min)', t: 'num', step: 0.25 },
-        bf === 'parallel' && { k: 'blockBreak', l: 'Pause zwischen Blöcken (min)', t: 'num' },
-        bf === 'jam' && { k: 'jamDur', l: 'Gesamtdauer (min)', t: 'num', step: 5 },
-      ] });
+      h += row(seg(r, 'boulderFormat', OPT.boulderFormat) + seg(r, 'sight', OPT.sight));
+      h += `<p class="hint">${esc(HINT[bf] || '')}</p>`;
+      let f = '';
+      if (bf === 'interval' || bf === 'parallel') f += numf(r, 'boulders', 'Boulder', '');
+      if (bf === 'interval' || bf === 'flash2sets') f += numf(r, 'interval', 'Intervall', 'min', 0.5);
+      if (bf === 'flash2sets') f += numf(r, 'setSize', 'Boulder/Set', '') + numf(r, 'setGap', 'Leer-Rot.', '');
+      if (bf === 'parallel') f += numf(r, 'active', 'gleichzeitig', '') + numf(r, 'rotation', 'Rotation', 'min', 0.25);
+      if (bf === 'jam') f += numf(r, 'jamDur', 'Dauer', 'min', 5);
+      h += row(f);
+      if (bf === 'interval') h += row(seg(r, 'restRot', OPT.restRot));
     } else {
-      const sf = r.speedFormat;
-      f.push({ group: 'Format', items: [
-        { k: 'lanes', l: 'Wand', t: 'select', o: SEL.lanes },
-        { k: 'raceTime', l: 'Zeit pro Race inkl. Wechsel (min)', t: 'num', step: 0.25 },
-        sf === 'training' && { k: 'trainDur', l: 'Feste Dauer (min, 0 = wie Quali)', t: 'num', step: 5 },
-        sf === 'final' && { k: 'bracket', l: 'Wettkampfbaum', t: 'select', o: SEL.bracket },
-        sf === 'final' && { k: 'phaseBreak', l: 'Pause zwischen Phasen (min)', t: 'num' },
-      ] });
+      let f = seg(r, 'lanes', OPT.lanes) + numf(r, 'raceTime', 'Zeit/Race', 'min', 0.25);
+      if (r.phase === 'training') f += numf(r, 'trainDur', 'feste Dauer', 'min', 5);
+      h += row(f);
+      if (r.phase === 'final') h += row(`<div class="lab">Wettkampfbaum${seg(r, 'bracket', OPT.bracket)}</div>`);
     }
-    const onsight = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.sight === 'onsight');
-    const hasObs = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.obsMode && r.obsMode !== 'none');
-    const vor = [{ k: 'warmup', l: 'Aufwärmbereich öffnet … min vor Start', t: 'num', step: 5 }];
-    if (onsight) vor.push({ k: 'isoClose', l: 'Isolation schließt … min vor Start', t: 'num', step: 5 });
-    if (d === 'boulder') vor.push({ k: 'obsMode', l: 'Gemeinsame Besichtigung', t: 'select', o: SEL.obsMode });
-    if (hasObs) vor.push({ k: 'obsBefore', l: 'Besichtigung beginnt … min vor Start', t: 'num' });
-    if (d !== 'speed' || r.speedFormat === 'final') {
-      vor.push({ k: 'presentation', l: d === 'speed' ? 'Präsentation vor Medal Races' : 'Präsentation der Finalisten', t: 'check' });
-      if (r.presentation) { vor.push({ k: 'presDur', l: 'Dauer Präsentation (min)', t: 'num' }); vor.push({ k: 'presPause', l: 'Pause bis 1. Versuch (min)', t: 'num' }); }
-    }
-    if (r.phase !== 'training') vor.push({ k: 'resultBuffer', l: 'Ende → offizielles Ergebnis (min)', t: 'num', step: 5 });
-    f.push({ group: 'Vorlauf und Ablauf', items: vor });
-    return f.map((g) => Object.assign(g, { items: g.items.filter(Boolean) }));
+    return h;
   }
 
-  function input(r, it) {
-    const v = r[it.k];
-    const attrs = `data-k="${it.k}" data-id="${r.id}"`;
-    if (it.t === 'select') {
-      return `<label class="${it.wide ? 'span2' : ''}">${esc(it.l)}<select ${attrs} data-struct="1">${it.o.map(([val, txt]) => `<option value="${val}"${String(v) === val ? ' selected' : ''}>${esc(txt)}</option>`).join('')}</select></label>`;
-    }
-    if (it.t === 'check') return `<label class="check"><input type="checkbox" ${attrs} data-struct="1"${v ? ' checked' : ''}> ${esc(it.l)}</label>`;
-    return `<label>${esc(it.l)}<input type="number" inputmode="decimal" min="0" step="${it.step || 1}" value="${esc(v)}" ${attrs}></label>`;
+  function advanced(r) {
+    const d = r.discipline;
+    const onsight = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.sight === 'onsight');
+    const hasObs = (d === 'lead' && r.leadFormat === 'onsight') || (d === 'boulder' && r.obsMode && r.obsMode !== 'none');
+    let f = numf(r, 'warmup', 'Aufwärmen öffnet vorher', 'min', 5);
+    if (onsight) f += numf(r, 'isoClose', 'Isolation schließt vorher', 'min', 5);
+    if (hasObs) f += numf(r, 'obsBefore', 'Besichtigung beginnt vorher', 'min');
+    if (r.phase !== 'training') f += numf(r, 'resultBuffer', 'Ende → Ergebnis', 'min', 5);
+    if (d === 'lead' && Number(r.starters) > 22) f += numf(r, 'cleanEvery', 'Reinigung alle', 'Starter') + numf(r, 'cleanDur', 'Dauer Reinigung', 'min');
+    if (d === 'boulder' && r.boulderFormat === 'parallel') f += numf(r, 'blockBreak', 'Pause zw. Blöcken', 'min');
+    if (d === 'speed' && r.phase === 'final') f += numf(r, 'phaseBreak', 'Pause zw. Phasen', 'min');
+    if (r.presentation) f += numf(r, 'presDur', 'Präsentation', 'min') + numf(r, 'presPause', 'Pause bis Start', 'min');
+    f += `<label class="nf">Tag (falls abweichend)<input type="date" value="${esc(r.day || '')}" data-k="day" data-id="${r.id}"></label>`;
+    let h = '';
+    if (d === 'boulder') h += row(`<div class="lab">Gemeinsame Besichtigung${seg(r, 'obsMode', OPT.obsMode)}</div>`);
+    if (d !== 'speed' || r.phase === 'final') h += row(`<label class="check"><input type="checkbox" data-k="presentation" data-id="${r.id}" data-struct="1"${r.presentation ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation vor den Medal Races' : 'Präsentation der Finalisten'}</label>`);
+    return h + `<div class="fgrid">${f}</div>`;
   }
 
   /* ---------- Runden ---------- */
@@ -110,41 +111,36 @@
   }
 
   function badgeHtml(ws) {
-    const c = { error: 0, rest: 0, should: 0, info: 0 };
+    const c = { error: 0, rest: 0, auto: 0, should: 0, info: 0 };
     ws.forEach((w) => { c[w.level]++; });
-    const lab = { error: '!', rest: '⏱', should: '?', info: 'i' };
-    return Object.keys(c).filter((k) => c[k]).map((k) => `<span class="badge ${k}" title="${c[k]}">${lab[k]} ${c[k]}</span>`).join('');
+    const lab = { error: '!', rest: '⏱', auto: '⏱', should: '?', info: 'i' };
+    return Object.keys(c).filter((k) => c[k]).map((k) => `<span class="badge ${k}">${lab[k]} ${c[k]}</span>`).join('');
   }
 
   function renderRounds() {
     const list = $('#roundList');
     $('#emptyRounds').hidden = comp.rounds.length > 0;
     list.innerHTML = comp.rounds.map((r) => {
-      const phaseOpts = r.discipline === 'speed' ? SEL.phaseSpeed : SEL.phaseLead;
-      const wallPick = comp.walls.length
-        ? comp.walls.map((w) => `<label class="check"><input type="checkbox" data-wall="${w.id}" data-id="${r.id}"${(r.walls || []).includes(w.id) ? ' checked' : ''}> ${esc(w.name)}</label>`).join('')
-        : '<span class="muted small">Lege oben Wände/Bereiche an, um Belegungen zu prüfen.</span>';
-      return `<article class="card round d-${r.discipline}${open.has(r.id) ? ' open' : ''}" data-round="${r.id}" id="round-${r.id}">
+      const phaseOpts = r.discipline === 'speed' ? OPT.phaseSpeed : OPT.phaseLead;
+      const walls = comp.walls.length
+        ? comp.walls.map((w) => `<button type="button" class="wchip${(r.walls || []).includes(w.id) ? ' on' : ''}" data-wall="${w.id}" data-id="${r.id}">${esc(w.name)}</button>`).join('')
+        : '<span class="muted small">Wände oben anlegen, dann hier zuordnen.</span>';
+      const showStarters = !(r.discipline === 'speed' && r.phase === 'final');
+      return `<article class="card round d-${r.discipline}${open.has(r.id) ? ' open' : ''}" id="round-${r.id}">
         <div class="round-head" data-toggle="${r.id}">
           <span class="chev">▶</span>
           <div class="title"><b data-title>${esc(roundTitle(r))}</b><span data-sum></span></div>
           <div class="badges" data-badges></div>
         </div>
         <div class="round-body">
-          <div class="fs"><div class="grid2">
-            <label>Kategorie<input type="text" value="${esc(r.category)}" data-k="category" data-id="${r.id}" placeholder="z. B. U17 männlich"></label>
-            <label>Runde<select data-k="phase" data-id="${r.id}" data-struct="1">${phaseOpts.map(([v, t]) => `<option value="${v}"${r.phase === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
-          </div></div>
-          <div class="fs"><div class="grid3">
-            <label>Start of Play<input type="time" value="${esc(r.start)}" data-k="start" data-id="${r.id}"></label>
-            <label>${r.discipline === 'speed' && r.phase === 'final' ? 'Starter (Info)' : 'Starter'}<input type="number" min="0" value="${esc(r.starters)}" data-k="starters" data-id="${r.id}" data-struct-num="1"></label>
-            <label>Tag<input type="date" value="${esc(r.day || '')}" data-k="day" data-id="${r.id}" placeholder="${esc(comp.date)}"></label>
-          </div>
-          <label class="check" style="margin-top:8px"><input type="checkbox" data-k="youth" data-id="${r.id}"${r.youth ? ' checked' : ''}> Jugendkategorie (Ende bis 20:00 Uhr)</label></div>
-          ${fieldsFor(r).map((g) => `<div class="fs"><p class="fs-title">${esc(g.group)}</p><div class="grid2">${g.items.map((it) => input(r, it)).join('')}</div></div>`).join('')}
-          <div class="fs"><p class="fs-title">Wände / Bereiche</p><div class="wallpick">${wallPick}</div></div>
+          ${row(`<input type="text" class="cat-in" value="${esc(r.category)}" data-k="category" data-id="${r.id}" placeholder="Kategorie, z. B. U17 männlich" aria-label="Kategorie">
+            <button type="button" class="wchip${r.youth ? ' on' : ''}" data-seg="youth" data-val="${!r.youth}" data-id="${r.id}" title="Jugend: Ende bis 20:00 Uhr">Jugend</button>`)}
+          ${row(seg(r, 'phase', phaseOpts) + `<label class="nf">Start of Play<input type="time" value="${esc(r.start)}" data-k="start" data-id="${r.id}"></label>` + (showStarters ? numf(r, 'starters', 'Starter', '') : ''))}
+          ${essentials(r)}
+          <div class="frow walls-row"><span class="lab-inline">Wand</span>${walls}</div>
           <div class="warns" data-warns></div>
-          <details class="detail" data-detail-wrap><summary>Startzeiten je Startplatz</summary><div class="detail-wrap" data-detail></div></details>
+          <details class="more" data-more="${r.id}:adv"${openMore.has(r.id + ':adv') ? ' open' : ''}><summary>Weitere Einstellungen <span class="muted small">(Standard nach Regelwerk)</span></summary>${advanced(r)}</details>
+          <details class="more" data-detail-wrap data-more="${r.id}:det"${openMore.has(r.id + ':det') ? ' open' : ''}><summary>Startzeiten je Startplatz</summary><div class="detail-wrap" data-detail></div></details>
           <div class="round-actions">
             <button type="button" class="mini" data-dup="${r.id}">Duplizieren</button>
             <button type="button" class="mini" data-del="${r.id}">Löschen</button>
@@ -152,8 +148,6 @@
         </div>
       </article>`;
     }).join('');
-    // span2 für breite Selects
-    list.querySelectorAll('label.span2').forEach((l) => { l.style.gridColumn = '1 / -1'; });
   }
 
   function updateRoundDynamic() {
@@ -198,14 +192,15 @@
     rows.sort((a, b) => a.day.localeCompare(b.day) || a.t - b.t || ((ord[a.ev.key] ?? 9) - (ord[b.ev.key] ?? 9)));
     const visible = rows.filter((x) => showMinor || !x.ev.minor || x.ws.length);
 
-    const cnt = { error: 0, rest: 0, should: 0, info: 0 };
+    const cnt = { error: 0, rest: 0, auto: 0, should: 0, info: 0 };
     results.forEach((res) => res.warnings.forEach((w) => { cnt[w.level]++; }));
     const sum = [];
     if (cnt.error) sum.push(`<span class="pill err">${cnt.error} ${cnt.error > 1 ? 'Regelverstöße' : 'Regelverstoß'}</span>`);
     if (cnt.rest) sum.push(`<span class="pill rest">${cnt.rest} Ruhezeit-Warnung${cnt.rest > 1 ? 'en' : ''}</span>`);
+    if (cnt.auto) sum.push(`<span class="pill auto">${cnt.auto}× Ruhezeit automatisch eingefügt</span>`);
     if (cnt.should) sum.push(`<span class="pill should">${cnt.should} Empfehlung${cnt.should > 1 ? 'en' : ''}</span>`);
     if (cnt.info) sum.push(`<span class="pill info">${cnt.info} Hinweis${cnt.info > 1 ? 'e' : ''}</span>`);
-    if (!sum.length && results.length) sum.push('<span class="pill ok">Keine Konflikte gefunden</span>');
+    if (!cnt.error && !cnt.rest && !cnt.should && !cnt.info && results.length) sum.unshift('<span class="pill ok">Keine Konflikte gefunden</span>');
     $('#summary').innerHTML = sum.join('');
 
     $('#planTitle').textContent = comp.name ? comp.name : 'Ablaufplan';
@@ -258,6 +253,10 @@
   }
 
   /* ---------- Ereignisse ---------- */
+  document.addEventListener('toggle', (e) => {
+    const k = e.target.dataset && e.target.dataset.more;
+    if (k) e.target.open ? openMore.add(k) : openMore.delete(k);
+  }, true);
   const findRound = (id) => comp.rounds.find((r) => r.id === id);
 
   document.addEventListener('input', (e) => {
@@ -278,15 +277,9 @@
     const id = t.dataset.id;
     if (!id) return;
     const r = findRound(id); if (!r) return;
-    if (t.dataset.wall) {
-      const set = new Set(r.walls || []);
-      t.checked ? set.add(t.dataset.wall) : set.delete(t.dataset.wall);
-      r.walls = [...set]; recompute(); return;
-    }
     const k = t.dataset.k;
     if (t.dataset.struct) {
-      r[k] = t.type === 'checkbox' ? t.checked : (k === 'lanes' || k === 'bracket' ? Number(t.value) : t.value);
-      if (k === 'phase') applyPhaseDefaults(r);
+      r[k] = t.checked;
       renderRounds(); recompute();
     } else if (t.dataset.structNum) {
       // Reinigungsfelder erscheinen erst ab 23 Startern (Lead)
@@ -296,9 +289,22 @@
   });
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-toggle],[data-dup],[data-del],[data-apply],[data-add],[data-delwall],[data-jump]');
+    const t = e.target.closest('[data-seg],[data-wall],[data-toggle],[data-dup],[data-del],[data-apply],[data-add],[data-delwall],[data-jump]');
     if (!t) return;
-    if (t.dataset.toggle) {
+    if (t.dataset.seg) {
+      const r = findRound(t.dataset.id); if (!r) return;
+      const k = t.dataset.seg, raw = t.dataset.val;
+      r[k] = raw === 'true' ? true : raw === 'false' ? false : /^\d+$/.test(raw) && k !== 'phase' ? Number(raw) : raw;
+      if (k === 'phase') applyPhaseDefaults(r);
+      renderRounds(); recompute();
+    } else if (t.dataset.wall) {
+      const r = findRound(t.dataset.id); if (!r) return;
+      const set = new Set(r.walls || []);
+      set.has(t.dataset.wall) ? set.delete(t.dataset.wall) : set.add(t.dataset.wall);
+      r.walls = [...set];
+      t.classList.toggle('on');
+      recompute();
+    } else if (t.dataset.toggle) {
       const id = t.dataset.toggle;
       open.has(id) ? open.delete(id) : open.add(id);
       document.getElementById('round-' + id).classList.toggle('open');
