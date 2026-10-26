@@ -158,12 +158,15 @@
   function lineHtml(day, ln) {
     const isRound = ln.kind === 'round';
     const d = isRound ? lineDisc(ln) : null;
-    let sub = '';
+    let sub = '', chips = '';
     if (CAT_KINDS.has(ln.kind) && allCats().length > 1) {
       const pool = isRound && d ? d.cats.map((c) => Object.assign({ disc: d }, c)) : allCats();
       const eff = (ln.cats || []).length ? ln.cats : pool.map((c) => c.id);
-      sub += `<div class="chips-row"><span class="lab-inline">für</span>${pool.map((c) => `<button type="button" class="wchip${eff.includes(c.id) ? ' on' : ''}" data-chip="${c.id}" data-line="${ln.id}" data-day="${day.id}">${esc(c.name || '?')}</button>`).join('')}</div>`;
+      chips = `<span class="lab-inline">für</span>${pool.map((c) => `<button type="button" class="wchip${eff.includes(c.id) ? ' on' : ''}" data-chip="${c.id}" data-line="${ln.id}" data-day="${day.id}">${esc(c.name || '?')}</button>`).join('')}`;
     }
+    // optionaler Ort / Wand je Zeile (Vorschläge aus bereits verwendeten Orten)
+    const place = `<input type="text" class="place" list="placeList" value="${esc(ln.place || '')}" placeholder="Ort / Wand (optional)" data-line="${ln.id}" data-day="${day.id}" data-lk="place" aria-label="Ort oder Wand (optional)">`;
+    sub += `<div class="chips-row">${chips}${place}</div>`;
     if (isRound) {
       if (comp.disciplines.length > 1) sub += row(seg(`data-line="${ln.id}" data-day="${day.id}"`, 'disc', comp.disciplines.map((x) => [x.id, C.DISC[x.discipline]]), ln.disc));
       if (d) {
@@ -198,7 +201,15 @@
         <div class="chips add-lines">${ADD_KINDS.map(([k, t]) => `<button type="button" class="wchip" data-addline="${k}" data-day="${day.id}">+ ${esc(t)}</button>`).join('')}</div>
       </article>`;
     }).join('') || '<p class="muted small">Noch kein Tag. „Zeitplan vorschlagen“ füllt einen regelkonformen Plan vor – oder lege mit „+ Tag“ selbst los.</p>';
+    renderPlaces();
     updateLines();
+  }
+
+  function renderPlaces() {
+    let dl = document.getElementById('placeList');
+    if (!dl) { dl = document.createElement('datalist'); dl.id = 'placeList'; document.body.appendChild(dl); }
+    const places = [...new Set(comp.days.flatMap((d) => d.lines.map((l) => (l.place || '').trim())).filter(Boolean))].sort();
+    dl.innerHTML = places.map((p) => `<option value="${esc(p)}"></option>`).join('');
   }
 
   function dayCats(day) {
@@ -268,7 +279,7 @@
       const title = day.title || joinAnd(cats);
       const marks = (ln) => { const ws = (checks.warn[ln.id] || []).filter((w) => w.level === 'error' || w.level === 'should'); return ws.length ? ` <span class="mark ${ws.some((w) => w.level === 'error') ? 'error' : 'should'}" title="${esc(ws.map((w) => w.text).join(' | '))}">!</span>` : ''; };
       let h = `<section class="day"><h3 class="day-title">${esc(fmtDay(day.date))}${title ? ': ' + esc(title) : ''}</h3>
-        <table class="sched">${day.lines.map((ln) => `<tr class="${ln.kind === 'round' ? 'main' : ''} jump" data-jumpline="${ln.id}"><td>${esc(labelOf(ln))}${marks(ln)}</td><td class="tm">${esc(timeText(ln))}</td></tr>`).join('')}</table>`;
+        <table class="sched">${day.lines.map((ln) => `<tr class="${ln.kind === 'round' ? 'main' : ''} jump" data-jumpline="${ln.id}"><td>${esc(labelOf(ln))}${ln.place ? `<span class="place-out"> · ${esc(ln.place)}</span>` : ''}${marks(ln)}</td><td class="tm">${esc(timeText(ln))}</td></tr>`).join('')}</table>`;
       const dayW = day.lines.flatMap((ln) => (checks.warn[ln.id] || []).map((w) => ({ w, ln })));
       if (dayW.length) h += `<div class="day-warns">${dayW.map(({ w, ln }) => `<span class="rowwarn ${w.level}">${esc(labelOf(ln))}: ${esc(w.text)}</span>`).join('')}</div>`;
       if (showStart) h += day.lines.filter((l) => l.kind === 'round').map((l) => startsHtml(lineResults(l))).join('');
@@ -320,6 +331,7 @@
 
   document.addEventListener('change', (e) => {
     const t = e.target;
+    if (t.dataset.line && t.dataset.lk === 'place') { renderPlaces(); return; }
     if (t.dataset.line && t.dataset.lk === 'time') { const day = findDay(t.dataset.day); sortLines(day); renderDays(); renderPlan(); save(); return; }
     if (t.dataset.day && t.dataset.dk === 'date') { renderDays(); renderPlan(); save(); return; }
     if (!(t.tagName === 'SELECT' || t.type === 'checkbox')) return;

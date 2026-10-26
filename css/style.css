@@ -236,3 +236,8 @@ details.starts summary{font-size:12.5px;font-weight:500;color:var(--muted)}
   .day-head input[data-dk=title]{grid-column:1 / -1;grid-row:2}
 }
 @media print{ .mark{display:none} body:not(.print-warn) .day-warns{display:none} }
+/* Ort / Wand je Zeile */
+.chips-row .place{flex:0 1 190px;width:190px;margin-left:auto;padding:4px 8px;font-size:13px}
+.chips-row .place:only-child{margin-left:0}
+.place-out{color:var(--muted);font-weight:400}
+@media (max-width:520px){ .chips-row .place{flex:1 1 100%;width:100%;margin-left:0} }

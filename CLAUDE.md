@@ -105,6 +105,8 @@ Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in 
 2. **Zeitplan** je Tag als Zeilen: Uhrzeit, optional „bis“, Bezeichnung (leer = automatisch), Art:
    Hallenöffnung, Registrierung, Technical Meeting, Runde, Isolation (von–bis), Präsentation, Besichtigung,
    Siegerehrung, eigener Punkt. Zeile ohne Uhrzeit = „im Anschluss“. Zeilen sortieren sich nach Uhrzeit.
+   Jede Zeile hat ein optionales Feld **Ort / Wand** (Vorschläge aus bereits verwendeten Orten); es erscheint im Plan
+   hinter der Bezeichnung („Finale Damen und Herren · Hauptwand“). Keine Belegungsprüfung.
    Runde: Phase, Kategorien (Chips, standardmäßig alle), **mehrere Kategorien standardmäßig parallel**
    (umschaltbar nacheinander; Speed-Finale zusätzlich verschränkt). Speed: „Training + Quali + Finale“ als eine Zeile.
 3. **„Zeitplan vorschlagen“** füllt einmalig einen regelkonformen Plan (Hallenöffnung −120, Registrierung −90…−60,
@@ -135,4 +137,3 @@ Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in 
 
 ## Offen / zu klären
 
-- Wände/Bereiche sind in v3 entfallen (Parallel/Nacheinander je Zeile) – bei Bedarf als optionales Ort-Feld je Zeile wieder ergänzen.
