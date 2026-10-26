@@ -23,18 +23,24 @@
     phaseSpeed: [['training', 'Training'], ['quali', 'Quali'], ['final', 'Finale']],
     leadFormat: [['flash2', 'Flash · 2 Routen'], ['flash1', 'Flash · 1 Route'], ['onsight', 'On Sight']],
     routeMode: [['par', 'parallel'], ['seq', 'nacheinander']],
-    boulderFormat: [['interval', 'Intervall'], ['flash2sets', '2 Sets'], ['parallel', 'Parallel'], ['jam', 'JAM']],
+    boulderQuali: [['interval', 'Intervall'], ['flash2sets', '2 Kurse'], ['jam', 'JAM']],
+    boulderSemi: [['interval', 'Intervall']],
+    boulderFinal: [['worldseries', 'World Series'], ['finInterval', 'Intervall'], ['classic', 'Classic'], ['onebyone', 'One by one']],
     sight: [['onsight', 'On Sight'], ['flash', 'Flash']],
-    restRot: [[false, 'ohne Pause'], [true, 'mit Pausen-Rotation']],
+    groups: [[1, '1 Gruppe'], [2, '2 Startgruppen']],
+    startMode: [['time', 'Uhrzeit'], ['after', 'im Anschluss an']],
     obsMode: [['none', 'keine'], ['per', '2 min je Boulder'], ['joint', '8 min gemeinsam']],
     lanes: [[2, 'Speed 2'], [4, 'Speed 4']],
     bracket: [[4, '4'], [8, '8'], [16, '16'], [32, '32']],
   };
   const HINT = {
-    interval: 'Fixes Intervall + 15 s Wechsel, ein Starter pro Rotation neu',
-    flash2sets: 'Zwei Gruppen starten versetzt und tauschen die Sets, mindestens 3 Rotationen Erholung',
-    parallel: 'Finale: mehrere Boulder gleichzeitig, Rotationszeit frei',
+    interval: 'Je Intervall ein Starter neu, zwischen zwei Bouldern eine Pausen-Rotation',
+    flash2sets: 'Zwei Gruppen starten versetzt auf Kurs A und B und tauschen, mindestens 3 Rotationen Erholung',
     jam: 'Feste Gesamtdauer, keine Rotationen',
+    worldseries: 'Abstand halbes Finalfeld: höchstens 2 Boulder gleichzeitig, Rotationszeit frei',
+    finInterval: 'Wie die Quali: fixes Intervall, Pausen-Rotation zwischen den Bouldern',
+    classic: 'Ablauf wie Intervall, Rotation max. 4 min (frei eingeben)',
+    onebyone: 'Boulder für Boulder, immer nur ein Athlet an der Wand',
   };
 
   function seg(r, k, opts) {
@@ -51,24 +57,30 @@
     if (d === 'lead') {
       h += row(seg(r, 'leadFormat', OPT.leadFormat));
       h += row((r.leadFormat === 'flash2' ? `<div class="lab">Routen${seg(r, 'routeMode', OPT.routeMode)}</div>` : '') + numf(r, 'attempt', 'Ø Versuch', 'min', 0.5));
+      if (r.leadFormat === 'flash2') h += row(seg(r, 'groups', OPT.groups) + (Number(r.groups) === 2 ? '<span class="hint">jede Gruppe auf eigenem Routenpaar</span>' : ''));
     } else if (d === 'boulder') {
       const bf = r.boulderFormat;
-      h += row(seg(r, 'boulderFormat', OPT.boulderFormat) + seg(r, 'sight', OPT.sight));
+      const F = C.BOULDER_FORMATS[bf] || {};
+      const opts = r.phase === 'final' ? OPT.boulderFinal : r.phase === 'semi' ? OPT.boulderSemi : OPT.boulderQuali;
+      h += row(seg(r, 'boulderFormat', opts) + (r.phase === 'quali' ? seg(r, 'sight', OPT.sight) : ''));
       h += `<p class="hint">${esc(HINT[bf] || '')}</p>`;
       let f = '';
-      if (bf === 'interval' || bf === 'parallel') f += numf(r, 'boulders', 'Boulder', '');
-      if (bf === 'interval' || bf === 'flash2sets') f += numf(r, 'interval', 'Intervall', 'min', 0.5);
-      if (bf === 'flash2sets') f += numf(r, 'setSize', 'Set 1', 'Boulder') + numf(r, 'setSize2', 'Set 2', 'Boulder');
-      if (bf === 'parallel') f += numf(r, 'active', 'gleichzeitig', '') + numf(r, 'rotation', 'Rotation', 'min', 0.25);
+      if (bf !== 'flash2sets' && bf !== 'jam') f += numf(r, 'boulders', 'Boulder', '');
+      if (bf === 'flash2sets') f += numf(r, 'setSize', 'Kurs A', 'Boulder') + numf(r, 'setSize2', 'Kurs B', 'Boulder');
+      if (F.fixed) f += numf(r, 'interval', 'Intervall', 'min + 15 s', 0.5);
+      else if (bf !== 'jam') f += numf(r, 'rotation', 'Rotation', 'min', 0.25);
       if (bf === 'jam') f += numf(r, 'jamDur', 'Dauer', 'min', 5);
       h += row(f);
-      if (bf === 'interval') h += row(seg(r, 'restRot', OPT.restRot));
-      if (bf === 'flash2sets') h += row(seg(r, 'setRest', OPT.restRot));
+      if (bf === 'interval') h += row(seg(r, 'groups', OPT.groups));
     } else {
       let f = seg(r, 'lanes', OPT.lanes) + numf(r, 'raceTime', 'Zeit/Race', 'min', 0.25);
       if (r.phase === 'training') f += numf(r, 'trainDur', 'feste Dauer', 'min', 5);
       h += row(f);
-      if (r.phase === 'final') h += row(`<div class="lab">Wettkampfbaum${seg(r, 'bracket', OPT.bracket)}</div>`);
+      if (r.phase === 'final') {
+        const others = comp.rounds.filter((x) => x.id !== r.id && x.discipline === 'speed' && x.phase === 'final');
+        const pair = others.length ? `<label class="nf">Verschränkt mit<select data-k="pairWith" data-id="${r.id}" data-struct="1"><option value="">– nicht verschränkt –</option>${others.map((x) => `<option value="${x.id}"${r.pairWith === x.id ? ' selected' : ''}>${esc(x.category || 'Ohne Kategorie')}</option>`).join('')}</select></label>` : '';
+        h += row(`<div class="lab">Wettkampfbaum${seg(r, 'bracket', OPT.bracket)}</div>` + pair);
+      }
     }
     return h;
   }
@@ -82,7 +94,6 @@
     if (hasObs) f += numf(r, 'obsBefore', 'Besichtigung beginnt vorher', 'min');
     if (r.phase !== 'training') f += numf(r, 'resultBuffer', 'Ende → Ergebnis', 'min', 5);
     if (d === 'lead' && Number(r.starters) > 22) f += numf(r, 'cleanEvery', 'Reinigung alle', 'Starter') + numf(r, 'cleanDur', 'Dauer Reinigung', 'min');
-    if (d === 'boulder' && r.boulderFormat === 'parallel') f += numf(r, 'blockBreak', 'Pause zw. Blöcken', 'min');
     if (d === 'speed' && r.phase === 'final') f += numf(r, 'phaseBreak', 'Pause zw. Phasen', 'min');
     if (r.presentation) f += numf(r, 'presDur', 'Präsentation', 'min') + numf(r, 'presPause', 'Pause bis Start', 'min');
     f += `<label class="nf">Tag (falls abweichend)<input type="date" value="${esc(r.day || '')}" data-k="day" data-id="${r.id}"></label>`;
@@ -90,6 +101,23 @@
     if (d === 'boulder') h += row(`<div class="lab">Gemeinsame Besichtigung${seg(r, 'obsMode', OPT.obsMode)}</div>`);
     if (d !== 'speed' || r.phase === 'final') h += row(`<label class="check"><input type="checkbox" data-k="presentation" data-id="${r.id}" data-struct="1"${r.presentation ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation vor den Medal Races' : 'Präsentation der Finalisten'}</label>`);
     return h + `<div class="fgrid">${f}</div>`;
+  }
+
+  function startRow(r) {
+    const res = results.find((x) => x.id === r.id);
+    if (res && res.partnerOf) {
+      const p = comp.rounds.find((x) => x.id === res.partnerOf);
+      return row(`<span class="hint">Start ergibt sich aus der Verschränkung mit ${esc(p ? p.category || 'Ohne Kategorie' : '?')}.</span>`);
+    }
+    let h = `<div class="lab">Start${seg(r, 'startMode', OPT.startMode)}</div>`;
+    if (r.startMode === 'after') {
+      const others = comp.rounds.filter((x) => x.id !== r.id);
+      h += `<label class="nf">Vorherige Runde<select data-k="afterId" data-id="${r.id}" data-struct="1"><option value="">– wählen –</option>${others.map((x) => `<option value="${x.id}"${r.afterId === x.id ? ' selected' : ''}>${esc(roundTitle(x))}</option>`).join('')}</select></label>`;
+      h += numf(r, 'afterGap', 'Wechsel / Reinigung', 'min', 5);
+    } else {
+      h += `<label class="nf">Uhrzeit<input type="time" value="${esc(r.start)}" data-k="start" data-id="${r.id}"></label>`;
+    }
+    return row(h);
   }
 
   /* ---------- Runden ---------- */
@@ -102,8 +130,10 @@
 
   function applyPhaseDefaults(r) {
     const d = C.defaults(r.discipline, r.phase);
-    const keys = { lead: ['leadFormat'], boulder: ['boulderFormat', 'sight', 'boulders', 'interval', 'obsMode'], speed: ['speedFormat'] }[r.discipline];
+    const keys = { lead: ['leadFormat'], boulder: [], speed: ['speedFormat'] }[r.discipline];
     keys.concat(['presentation']).forEach((k) => { r[k] = d[k]; });
+    if (r.discipline === 'boulder') Object.assign(r, C.boulderFormatDefaults(d.boulderFormat, r.phase));
+    if (r.phase !== 'quali') r.groups = 1;
   }
 
   function roundTitle(r) {
@@ -119,6 +149,7 @@
   }
 
   function renderRounds() {
+    results = C.computeAll(comp);
     const list = $('#roundList');
     $('#emptyRounds').hidden = comp.rounds.length > 0;
     list.innerHTML = comp.rounds.map((r) => {
@@ -135,7 +166,8 @@
         </div>
         <div class="round-body">
           ${row(`<input type="text" class="cat-in" value="${esc(r.category)}" data-k="category" data-id="${r.id}" placeholder="Kategorie, z. B. U17 männlich" aria-label="Kategorie">`)}
-          ${row(seg(r, 'phase', phaseOpts) + `<label class="nf">Start of Play<input type="time" value="${esc(r.start)}" data-k="start" data-id="${r.id}"></label>` + (showStarters ? numf(r, 'starters', 'Starter', '') : ''))}
+          ${row(seg(r, 'phase', phaseOpts) + (showStarters ? numf(r, 'starters', 'Starter', '') : ''))}
+          ${startRow(r)}
           ${essentials(r)}
           <div class="frow walls-row"><span class="lab-inline">Wand</span>${walls}</div>
           <div class="warns" data-warns></div>
@@ -172,7 +204,7 @@
   }
 
   /* ---------- Ablaufplan ---------- */
-  const MERGE = new Set(['warmup', 'iso']);
+  const MERGE = new Set(['warmup', 'iso', 'pres']);
 
   function planRows() {
     const rows = [];
@@ -190,7 +222,8 @@
     (comp.items || []).forEach((it) => {
       const t = C.toMin(it.time);
       if (t == null || !it.title) return;
-      rows.push({ day: it.day || comp.date || '', t, key: 'item', label: it.title, rounds: [], item: it, ws: [] });
+      const until = C.toMin(it.until);
+      rows.push({ day: it.day || comp.date || '', t, key: 'item', label: it.title + (until != null ? ` (bis ${C.fmt(until)})` : ''), rounds: [], item: it, ws: [] });
     });
     const ord = { item: -1, warmup: 0, iso: 2, obs: 3, pres: 4, sop: 5 };
     rows.sort((x, y) => x.day.localeCompare(y.day) || x.t - y.t || ((ord[x.key] ?? 9) - (ord[y.key] ?? 9)));
@@ -255,11 +288,12 @@
   }
 
   /* ---------- Eigene Programmpunkte ---------- */
-  const PRESETS = ['Registration', 'Technical Meeting', 'Eröffnung', 'Mittagspause', 'Siegerehrung'];
+  const PRESETS = ['Registration', 'Technical Meeting'];
   function renderItems() {
     comp.items = comp.items || [];
     $('#itemList').innerHTML = comp.items.map((it) => `<div class="item" id="item-${it.id}">
-        <input type="time" value="${esc(it.time)}" data-item="${it.id}" data-ik="time" aria-label="Uhrzeit">
+        <input type="time" value="${esc(it.time)}" data-item="${it.id}" data-ik="time" aria-label="Beginn">
+        <input type="time" value="${esc(it.until || '')}" data-item="${it.id}" data-ik="until" aria-label="Ende (optional)" title="Ende (optional)">
         <input type="text" value="${esc(it.title)}" data-item="${it.id}" data-ik="title" placeholder="Programmpunkt" aria-label="Programmpunkt">
         <input type="text" value="${esc(it.note || '')}" data-item="${it.id}" data-ik="note" placeholder="Für wen / Ort" aria-label="Für wen oder Ort">
         <input type="date" value="${esc(it.day || '')}" data-item="${it.id}" data-ik="day" aria-label="Tag (falls abweichend)" title="Tag (falls abweichend)">
@@ -269,7 +303,7 @@
   }
   function addItem(title) {
     comp.items = comp.items || [];
-    const it = { id: uid(), time: '', title, note: '', day: '' };
+    const it = { id: uid(), time: '', until: '', title, note: '', day: '' };
     comp.items.push(it);
     renderItems(); recompute();
     const el = document.getElementById('item-' + it.id);
@@ -335,7 +369,7 @@
     const r = findRound(id); if (!r) return;
     const k = t.dataset.k;
     if (t.dataset.struct) {
-      r[k] = t.checked;
+      r[k] = t.type === 'checkbox' ? t.checked : t.value;
       renderRounds(); recompute();
     } else if (t.dataset.structNum) {
       // Reinigungsfelder erscheinen erst ab 23 Startern (Lead)
@@ -355,6 +389,7 @@
       const k = t.dataset.seg, raw = t.dataset.val;
       r[k] = raw === 'true' ? true : raw === 'false' ? false : /^\d+$/.test(raw) && k !== 'phase' ? Number(raw) : raw;
       if (k === 'phase') applyPhaseDefaults(r);
+      if (k === 'boulderFormat') Object.assign(r, C.boulderFormatDefaults(r.boulderFormat, r.phase));
       renderRounds(); recompute();
     } else if (t.dataset.wall) {
       const r = findRound(t.dataset.id); if (!r) return;
@@ -438,22 +473,20 @@
     const date = today();
     const walls = [{ id: 'wl', name: 'Lead-Wand' }, { id: 'wb', name: 'Boulderbereich' }, { id: 'ws', name: 'Speed-Wand' }];
     const R = (discipline, phase, o) => Object.assign({ id: uid(), discipline, phase, category: '', day: '', walls: [] }, C.defaults(discipline, phase), o);
+    const lq1 = R('lead', 'quali', { category: 'U17 weiblich', start: '09:30', starters: 10, walls: ['wl'] });
+    const lq2 = R('lead', 'quali', { category: 'U17 männlich', startMode: 'after', afterId: lq1.id, afterGap: 10, starters: 26, walls: ['wl'] });
+    const bq = R('boulder', 'quali', { category: 'U15', start: '09:30', starters: 18, walls: ['wb'] });
+    const bf = R('boulder', 'final', { category: 'U15', start: '15:00', starters: 8, walls: ['wb'] });
+    const sq1 = R('speed', 'quali', { category: 'Damen', start: '16:00', starters: 12, walls: ['ws'] });
+    const sq2 = R('speed', 'quali', { category: 'Herren', startMode: 'after', afterId: sq1.id, afterGap: 5, starters: 16, walls: ['ws'] });
+    const sf1 = R('speed', 'final', { category: 'Damen', start: '17:30', bracket: 8, walls: ['ws'] });
+    const sf2 = R('speed', 'final', { category: 'Herren', bracket: 16, pairWith: sf1.id, walls: ['ws'] });
     return {
       name: 'Beispiel Landesmeisterschaft', date, walls,
-      rounds: [
-        R('lead', 'quali', { category: 'U17 männlich', start: '09:30', starters: 4, walls: ['wl'] }),
-        R('lead', 'quali', { category: 'Damen', start: '11:00', starters: 26, walls: ['wl'] }),
-        R('lead', 'final', { category: 'U17 männlich', start: '15:00', starters: 4, walls: ['wl'] }),
-        R('boulder', 'quali', { category: 'U15', start: '09:30', starters: 18, walls: ['wb'] }),
-        R('boulder', 'final', { category: 'U15', start: '14:00', starters: 6, isoClose: 20, walls: ['wb'] }),
-        R('speed', 'training', { category: 'Alle', start: '16:00', starters: 16, walls: ['ws'] }),
-        R('speed', 'quali', { category: 'Herren', start: '16:30', starters: 16, walls: ['ws'] }),
-        R('speed', 'final', { category: 'Herren', start: '17:30', bracket: 8, presentation: true, walls: ['ws'] }),
-      ],
+      rounds: [lq1, lq2, bq, bf, sq1, sq2, sf1, sf2],
       items: [
-        { id: uid(), time: '07:30', title: 'Registration', note: 'Alle Kategorien', day: '' },
-        { id: uid(), time: '08:15', title: 'Technical Meeting', note: 'Trainer und Betreuer', day: '' },
-        { id: uid(), time: '18:30', title: 'Siegerehrung', note: 'Alle Kategorien', day: '' },
+        { id: uid(), time: '07:30', until: '08:30', title: 'Registration', note: 'Alle Kategorien', day: '' },
+        { id: uid(), time: '08:30', until: '', title: 'Technical Meeting', note: 'Trainer und Betreuer', day: '' },
       ],
     };
   }
