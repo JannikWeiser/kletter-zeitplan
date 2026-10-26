@@ -46,7 +46,7 @@
       return Object.assign(base, {
         boulderFormat: fin ? 'parallel' : 'interval',
         sight: phase === 'quali' ? 'flash' : 'onsight',
-        boulders: fin ? 4 : 5, interval: fin ? 4 : 5, restRot: false, setSize: 3, setGap: 0,
+        boulders: fin ? 4 : 5, interval: fin ? 4 : 5, restRot: false, setRest: true, setSize: 3, setSize2: 2,
         active: 2, rotation: 5, blockBreak: 0, jamDur: 120,
         obsMode: fin ? 'per' : 'none', obsBefore: 20,
         starters: phase === 'quali' ? 30 : phase === 'semi' ? 24 : 8,
@@ -212,28 +212,48 @@
       cols.push('Ende');
       res.detail = { cols, rows: Array.from({ length: n }, (_, i) => [i + 1].concat(Array.from({ length: B }, (_, b) => fmt(sop + (i + b * step) * rot, true)), [fmt(sop + (i + (B - 1) * step + 1) * rot - CH, true)])) };
     } else if (bf === 'flash2sets') {
+      // Zwei Sets, Feld in zwei Gruppen versetzt um die halbe Starterzahl (Schema Running Order Flash-Quali)
       const I = num(r.interval, 4), rot = I + CH;
-      const b = Math.max(1, Math.round(num(r.setSize, 3)));
-      const g = Math.max(0, Math.round(num(r.setGap, 0)));
-      const A = Math.ceil(n / 2), Bn = n - A;
+      const b1 = Math.max(1, Math.round(num(r.setSize, 3)));
+      const b2 = Math.max(1, Math.round(num(r.setSize2, 2)));
+      const step = r.setRest === false ? 1 : 2; // Pausen-Rotation zwischen den Bouldern eines Sets
+      const k = Math.floor(n / 2);
+      const s1 = (p, g) => p + (p >= k ? g : 0);
+      const s2 = (q, g) => q + (q >= n - k ? g : 0);
+      const span = (bb) => step * (bb - 1) + 1; // Rotationen vom ersten bis Ende des letzten Boulders
+      const restFor = (g) => {
+        let min = Infinity;
+        for (let i = 0; i < n; i++) {
+          const a1 = s1(i, g), a2 = s2((i - k + n) % n, g);
+          min = Math.min(min, a1 < a2 ? a2 - (a1 + span(b1)) : a1 - (a2 + span(b2)));
+        }
+        return min;
+      };
+      // ≥ 3 Rotationen Erholung zwischen den Sets (Boulder 4.7 C): Leer-Rotationen an der Gruppengrenze automatisch einfügen
+      let g = 0;
+      const rest0 = n > 1 ? restFor(0) : Infinity;
+      while (n > 1 && restFor(g) < 3) g++;
       const rows = [];
-      for (let p = 0; p < A; p++) rows.push({ nr: rows.length + 1, grp: 'A', s1: p, s2: Bn + g + p });
-      for (let p = 0; p < Bn; p++) rows.push({ nr: rows.length + 1, grp: 'B', s2: p, s1: A + g + p });
-      let minRest = Infinity, maxEnd = 0;
-      rows.forEach((x) => {
-        const firstSet = Math.min(x.s1, x.s2), second = Math.max(x.s1, x.s2);
-        minRest = Math.min(minRest, second - (firstSet + b));
-        maxEnd = Math.max(maxEnd, second + b);
-      });
-      res.events.push({ key: 'sop', t: sop, label: `Start (${n} Starter · 2 Sets à ${b} Boulder · ${I} min + 15 s)` });
+      let maxEnd = 0;
+      for (let i = 0; i < n; i++) {
+        const q = (i - k + n) % n;
+        const a1 = s1(i, g), a2 = s2(q, g);
+        maxEnd = Math.max(maxEnd, a1 + span(b1), a2 + span(b2));
+        const times = [];
+        for (let j = 0; j < b1; j++) times.push(fmt(sop + (a1 + j * step) * rot, true));
+        for (let j = 0; j < b2; j++) times.push(fmt(sop + (a2 + j * step) * rot, true));
+        rows.push([i + 1, i < k ? 'A' : 'B', fmt(sop + (Math.min(a1, a2) - 3) * rot, true)].concat(times));
+      }
+      res.events.push({ key: 'sop', t: sop, label: `Start (${n} Starter · Sets ${b1} + ${b2} Boulder · ${I} min + 15 s)` });
+      if (g) {
+        res.events.push({ key: 'gap', t: sop + Math.min(k, n - k) * rot, label: `Pause (${g} Rotation${g > 1 ? 'en' : ''}) an der Gruppengrenze` });
+        res.warnings.push(W('auto', `Erholung zwischen den Sets eingefügt: ${g} Leer-Rotation${g > 1 ? 'en' : ''} an der Gruppengrenze, sonst nur ${rest0} Rotation${rest0 === 1 ? '' : 'en'} statt 3 (Boulder 4.7 C).`, 'gap'));
+      }
       res.end = n ? sop + maxEnd * rot - CH : sop;
       res.info = `${maxEnd} Rotationen à ${I} min + 15 s`;
-      if (n > 1 && minRest < 3) {
-        const need = g + (3 - minRest);
-        res.warnings.push(W('rest', `Erholung zwischen den Sets nur ${minRest} Rotation(en) statt 3 (Boulder 4.7 C). Vorschlag: ${need} Leer-Rotation(en) einplanen.`));
-        res.suggest = { field: 'setGap', value: need, label: `${need} Leer-Rotation(en)` };
-      }
-      res.detail = { cols: ['Starter', 'Gruppe', 'Start Set 1', 'Start Set 2', 'Pause'], rows: rows.map((x) => [x.nr, x.grp, fmt(sop + x.s1 * rot, true), fmt(sop + x.s2 * rot, true), { v: (Math.abs(x.s2 - x.s1) - b) + ' Rot.', warn: Math.abs(x.s2 - x.s1) - b < 3 }]) };
+      const cols = ['Startplatz', 'Gruppe', 'Call Zone'];
+      for (let j = 1; j <= b1 + b2; j++) cols.push('B' + j);
+      res.detail = { cols, rows };
     } else if (bf === 'parallel') {
       const P = Math.max(1, Math.round(num(r.active, 2)));
       const rot = num(r.rotation, 5);

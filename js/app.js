@@ -32,7 +32,7 @@
   };
   const HINT = {
     interval: 'Fixes Intervall + 15 s Wechsel, ein Starter pro Rotation neu',
-    flash2sets: 'Zwei Gruppen tauschen die Sets, ≥ 3 Rotationen Erholung',
+    flash2sets: 'Zwei Gruppen starten versetzt und tauschen die Sets, mindestens 3 Rotationen Erholung',
     parallel: 'Finale: mehrere Boulder gleichzeitig, Rotationszeit frei',
     jam: 'Feste Gesamtdauer, keine Rotationen',
   };
@@ -58,11 +58,12 @@
       let f = '';
       if (bf === 'interval' || bf === 'parallel') f += numf(r, 'boulders', 'Boulder', '');
       if (bf === 'interval' || bf === 'flash2sets') f += numf(r, 'interval', 'Intervall', 'min', 0.5);
-      if (bf === 'flash2sets') f += numf(r, 'setSize', 'Boulder/Set', '') + numf(r, 'setGap', 'Leer-Rot.', '');
+      if (bf === 'flash2sets') f += numf(r, 'setSize', 'Set 1', 'Boulder') + numf(r, 'setSize2', 'Set 2', 'Boulder');
       if (bf === 'parallel') f += numf(r, 'active', 'gleichzeitig', '') + numf(r, 'rotation', 'Rotation', 'min', 0.25);
       if (bf === 'jam') f += numf(r, 'jamDur', 'Dauer', 'min', 5);
       h += row(f);
       if (bf === 'interval') h += row(seg(r, 'restRot', OPT.restRot));
+      if (bf === 'flash2sets') h += row(seg(r, 'setRest', OPT.restRot));
     } else {
       let f = seg(r, 'lanes', OPT.lanes) + numf(r, 'raceTime', 'Zeit/Race', 'min', 0.25);
       if (r.phase === 'training') f += numf(r, 'trainDur', 'feste Dauer', 'min', 5);
