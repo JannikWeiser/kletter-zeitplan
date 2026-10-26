@@ -98,7 +98,7 @@ Auftraggeber-Wunsch: „Nur ändern, was ich wirklich ändern muss“, Zeiten wi
 das Tool berechnet nur Rundenenden und gibt Hinweise. Grundlage: Ausschreibungen DM Lead Darmstadt, SDM Bouldern
 Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in `~/Downloads`, nicht im Repo).
 
-1. **Kategorien und Format** je Disziplin: Vorlage (`C.TEMPLATES`: Bouldern `regional` (wie SDM), `dm`, `djc`, `bwjc`;
+1. **Kategorien und Format** je Disziplin: Vorlage (`C.TEMPLATES`: Bouldern `regional`, `dm`, `djc`, `bwjc`;
    Lead `dm`, `djc`, `one`; Speed `s2`, `s4`), Kategorien-Tabelle (Starter, Quote HF/Finale). „Format anpassen“ klappt
    Formate je Runde und allgemeine Werte auf (Ende → Ergebnis 15 min, Wechsel bei „nacheinander“ 10/10/5 min,
    Präsentation dauert 5 min, Call Zone 5 min vor Start, Speed: Pause Training → Quali → Finale 10 min).

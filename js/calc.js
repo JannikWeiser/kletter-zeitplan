@@ -595,7 +595,7 @@
   /* ---------- Vorlagen: Formate je Disziplin (aus den Ausschreibungen DM, SDM, DJC, BWJC, LM) ---------- */
   const TEMPLATES = {
     boulder: {
-      regional: { label: 'Regional-/Landesmeisterschaft (wie SDM)', phases: ['quali', 'semi', 'final'], days: 2, quota: { semi: 20, final: 10 },
+      regional: { label: 'Regional-/Landesmeisterschaft', phases: ['quali', 'semi', 'final'], days: 2, quota: { semi: 20, final: 10 },
         set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 3, interval: 4, sight: 'flash' },
           semi: { boulderFormat: 'interval', boulders: 4, interval: 5, sight: 'onsight' },
           final: { boulderFormat: 'finInterval', boulders: 4, interval: 5, sight: 'onsight', obsMode: 'joint' } } },
