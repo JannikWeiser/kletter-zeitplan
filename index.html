@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+<title>Zeitplan Kletterwettkampf</title>
+<meta name="description" content="Zeitpläne für Kletterwettkämpfe (Lead, Bouldern, Speed) nach dem Nationalen Regelwerk Klettern erstellen und prüfen.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23f97316'/><text x='50' y='67' font-size='46' text-anchor='middle' font-family='Arial' font-weight='700' fill='white'>ZP</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">ZP</span><div><h1>Zeitplan Kletterwettkampf</h1><p class="muted">Lead · Bouldern · Speed – nach Nationalem Regelwerk 27.1</p></div></div>
+  <div class="toolbar no-print">
+    <button type="button" id="btnExample" class="ghost">Beispiel laden</button>
+    <button type="button" id="btnNew" class="ghost">Neu</button>
+    <button type="button" id="btnImport" class="ghost">Importieren</button>
+    <button type="button" id="btnExport">Exportieren</button>
+    <button type="button" id="btnPrint" class="primary">Drucken / PDF</button>
+    <input type="file" id="fileImport" accept="application/json,.json" hidden>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="editor no-print" aria-label="Eingabe">
+    <div class="card">
+      <h2>Wettkampf</h2>
+      <div class="grid2">
+        <label>Name<input type="text" id="compName" placeholder="Landesmeisterschaft Lead/Boulder 2027"></label>
+        <label>Datum (Standard)<input type="date" id="compDate"></label>
+      </div>
+      <div class="walls">
+        <div class="label-row"><span>Wände / Bereiche</span><span class="muted small">Für die Belegungsprüfung</span></div>
+        <div id="wallList" class="chips"></div>
+        <form id="wallForm" class="inline-form"><input type="text" id="wallInput" placeholder="z. B. Lead-Wand links"><button type="submit">Hinzufügen</button></form>
+      </div>
+    </div>
+
+    <div class="rounds-head">
+      <h2>Runden</h2>
+      <div class="add-group">
+        <button type="button" data-add="lead" class="tag-lead">+ Lead</button>
+        <button type="button" data-add="boulder" class="tag-boulder">+ Bouldern</button>
+        <button type="button" data-add="speed" class="tag-speed">+ Speed</button>
+      </div>
+    </div>
+    <div id="roundList"></div>
+    <p id="emptyRounds" class="empty muted">Noch keine Runde angelegt. Füge oben eine Lead-, Boulder- oder Speed-Runde hinzu – oder lade das Beispiel.</p>
+  </section>
+
+  <section class="plan" aria-label="Ablaufplan">
+    <div class="card">
+      <div class="plan-head">
+        <div>
+          <h2 id="planTitle">Ablaufplan</h2>
+          <p id="planSub" class="muted small"></p>
+        </div>
+        <div class="switches no-print">
+          <label class="switch"><input type="checkbox" id="showMinor" checked> Nebenpunkte</label>
+          <label class="switch"><input type="checkbox" id="printWarn"> Warnungen mitdrucken</label>
+        </div>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div id="planBody"></div>
+    </div>
+    <div class="legend muted small">
+      <span class="pill err">Regelverstoß (muss)</span>
+      <span class="pill rest">Ruhe-/Pausenzeit unterschritten</span>
+      <span class="pill should">Empfehlung (sollte)</span>
+      <span class="pill info">Hinweis</span>
+    </div>
+  </section>
+</main>
+
+<footer class="foot no-print">
+  <p class="muted small">Berechnungen ohne Gewähr – verbindlich sind das gültige Regelwerk und die Entscheidung der Jury. Daten bleiben nur in diesem Browser gespeichert.</p>
+  <p class="small"><a href="impressum.html">Impressum</a> · <a href="datenschutz.html">Datenschutz</a></p>
+</footer>
+
+<script src="js/calc.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
