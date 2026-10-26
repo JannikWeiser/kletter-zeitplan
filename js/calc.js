@@ -77,7 +77,7 @@
   function boulderFormatDefaults(f, phase) {
     switch (f) {
       case 'interval': return { boulderFormat: f, boulders: phase === 'semi' ? 4 : 5, interval: 5, sight: 'onsight', obsMode: 'none' };
-      case 'flash2sets': return { boulderFormat: f, setSize: 3, setSize2: 3, interval: 4, sight: 'flash', obsMode: 'none' };
+      case 'flash2sets': return { boulderFormat: f, flashTotal: 6, interval: 4, sight: 'flash', obsMode: 'none' };
       case 'jam': return { boulderFormat: f, sight: 'flash', obsMode: 'none' };
       case 'finInterval': return { boulderFormat: f, boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' };
       case 'worldseries': return { boulderFormat: f, boulders: 4, rotation: 5, sight: 'onsight', obsMode: 'per' };
@@ -283,8 +283,10 @@
      Starterzahl, jede Gruppe beginnt auf einem Kurs und tauscht danach (Schema Running Order BWJC) */
   function boulderTwoCourses(r, sop, res, n) {
     const I = num(r.interval, 4), cyc = I + CH;
-    const b1 = Math.max(1, Math.round(num(r.setSize, 3)));
-    const b2 = Math.max(1, Math.round(num(r.setSize2, 3)));
+    // Anzahl Boulder wird auf die Kurse verteilt (aufgerundet/Rest, z. B. 6 = 3+3, 5 = 3+2) – wie im Excel-Rechner
+    const tot = num(r.flashTotal, NaN);
+    const b1 = isFinite(tot) ? Math.max(1, Math.ceil(tot / 2)) : Math.max(1, Math.round(num(r.setSize, 3)));
+    const b2 = isFinite(tot) ? Math.max(1, tot - b1) : Math.max(1, Math.round(num(r.setSize2, 3)));
     const step = 2; // Pausen-Rotation zwischen den Bouldern eines Kurses
     const k = Math.floor(n / 2);
     const s1 = (p, g) => p + (p >= k ? g : 0);
@@ -596,7 +598,7 @@
   const TEMPLATES = {
     boulder: {
       regional: { label: 'Regional-/Landesmeisterschaft', phases: ['quali', 'semi', 'final'], days: 2, quota: { semi: 20, final: 10 },
-        set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 3, interval: 4, sight: 'flash' },
+        set: { quali: { boulderFormat: 'flash2sets', flashTotal: 6, interval: 4, sight: 'flash' },
           semi: { boulderFormat: 'interval', boulders: 4, interval: 5, sight: 'onsight' },
           final: { boulderFormat: 'finInterval', boulders: 4, interval: 5, sight: 'onsight', obsMode: 'joint' } } },
       dm: { label: 'Deutsche Meisterschaft', phases: ['quali', 'semi', 'final'], days: 2, quota: { semi: 24, final: 8 },
@@ -604,10 +606,10 @@
           semi: { boulderFormat: 'interval', boulders: 4, interval: 5, sight: 'onsight' },
           final: { boulderFormat: 'worldseries', boulders: 4, rotation: 5, sight: 'onsight', obsMode: 'per' } } },
       djc: { label: 'Deutscher Jugendcup', phases: ['quali', 'final'], days: 1, quota: { final: 10 },
-        set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 3, interval: 4, sight: 'flash' },
+        set: { quali: { boulderFormat: 'flash2sets', flashTotal: 6, interval: 4, sight: 'flash' },
           final: { boulderFormat: 'finInterval', boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' } } },
       bwjc: { label: 'BW Jugendcup', phases: ['quali', 'final'], days: 1, quota: { final: 8 },
-        set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 2, interval: 4, sight: 'flash' },
+        set: { quali: { boulderFormat: 'flash2sets', flashTotal: 5, interval: 4, sight: 'flash' },
           final: { boulderFormat: 'finInterval', boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' } } },
     },
     lead: {
@@ -648,7 +650,10 @@
     if (d.discipline === 'speed') return ph === 'training' && num(s.trainDur, 0) > 0 ? `${s.trainDur} min` : `Speed ${s.lanes}, ${s.raceTime} min je Race`;
     const sight = ph === 'quali' ? (s.sight === 'flash' ? 'Flash, ' : 'On Sight, ') : '';
     switch (s.boulderFormat) {
-      case 'flash2sets': return `${sight}2 Gruppen à ${s.setSize}${Number(s.setSize2) !== Number(s.setSize) ? '/' + s.setSize2 : ''} Boulder, ${s.interval} min + 15 s`;
+      case 'flash2sets': {
+        const t = Math.round(num(s.flashTotal, num(s.setSize, 3) + num(s.setSize2, 3))), a = Math.ceil(t / 2);
+        return `${sight}2 Gruppen, ${t} Boulder (${a}+${t - a}), ${s.interval} min + 15 s`;
+      }
       case 'jam': return `JAM, ${s.jamDur} min`;
       case 'worldseries': return `World Series, ${s.boulders} Boulder, Rotation ${s.rotation} min`;
       case 'classic': return `Classic, ${s.boulders} Boulder, Rotation ${s.rotation} min`;

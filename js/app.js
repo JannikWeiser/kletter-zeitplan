@@ -106,7 +106,7 @@
       const bf = v('boulderFormat'), F = C.BOULDER_FORMATS[bf] || {};
       const opts = ph === 'final' ? OPT.boulderFinal : ph === 'semi' ? OPT.boulderSemi : OPT.boulderQuali;
       h += row(pseg(d, ph, 'boulderFormat', opts) + (ph === 'quali' ? pseg(d, ph, 'sight', OPT.sight) : ''));
-      if (bf === 'flash2sets') f += pnum(d, ph, 'setSize', 'Gruppe A', 'Boulder') + pnum(d, ph, 'setSize2', 'Gruppe B', 'Boulder');
+      if (bf === 'flash2sets') f += pnum(d, ph, 'flashTotal', 'Anzahl Boulder (auf 2 Kurse verteilt)', '');
       else if (bf !== 'jam') f += pnum(d, ph, 'boulders', 'Boulder', '');
       if (F.fixed) f += pnum(d, ph, 'interval', 'Intervall', 'min + 15 s', 0.5);
       else if (bf !== 'jam') f += pnum(d, ph, 'rotation', 'Rotation', 'min', 0.25);

@@ -96,7 +96,8 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
 
 Auftraggeber-Wunsch: „Nur ändern, was ich wirklich ändern muss“, Zeiten wie in der Ausschreibung selbst eintragen,
 das Tool berechnet nur Rundenenden und gibt Hinweise. Grundlage: Ausschreibungen DM Lead Darmstadt, SDM Bouldern
-Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in `~/Downloads`, nicht im Repo).
+Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in `~/Downloads`, nicht im Repo),
+sowie die Excel des Auftraggebers (siehe unten).
 
 1. **Kategorien und Format** je Disziplin: Vorlage (`C.TEMPLATES`: Bouldern `regional`, `dm`, `djc`, `bwjc`;
    Lead `dm`, `djc`, `one`; Speed `s2`, `s4`), Kategorien-Tabelle (Starter, Quote HF/Finale). „Format anpassen“ klappt
@@ -134,6 +135,23 @@ Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in 
 ### Abgeglichen
 - Running Order SDM Rosenheim (Damen 61, 2 Gruppen B1–B3/B4–B6, 4 min + 15 s): sekundengenau gleich,
   Ende 16:06; Call Zone dort 5 min vor Start.
+
+## Excel-Backup „Zeitplan Rechner.xlsx“ (nur lokal)
+
+- Liegt in `Rules/Zeitplan Rechner.xlsx` (Original des Auftraggebers: `Rules/Zeitplan Rechner (Original).xlsx`),
+  **nie ins Repo** (`Rules/` ist ignoriert). Backup, falls die Website nicht erreichbar ist.
+- Blätter: Bouldern (Flash 2 Gruppen, Intervallmodus, Finale freie Rotation), Startliste Flash, Startliste Intervall,
+  Lead (Quali 2 Routen parallel/nacheinander mit automatischer 50-min-Pause und Reinigung, HF/Finale 1 Route,
+  verstecktes Blatt „Hilfe Lead“), Speed (Training, Quali mit 5-min-Pause, Finale mit Phasentabelle), Prüfung
+  (Aufwärmen, Isolation, Präsentation, Reihenfolge – Ampeltexte).
+- Gleiche Logik wie `calc.js`; geprüft auf identische Ergebnisse (SDM 61 Damen 16:06:00 inkl. Startliste, Lead 10/24/30,
+  Speed 2/4-Finale). Erzeugt per Python-Skript (openpyxl) + Neuberechnung mit LibreOffice.
+- Fehler im Original (behoben): Flash ließ Gruppe B erst nach kompletter Gruppe A auf Kurs A (zu lang, 45 Starter
+  12:49 statt 12:28); Intervall ohne Pausen-Rotation (14/3 B.: 16:24 statt 16:34:15); Lead-Quali `n·t<50 → +50`
+  statt Halbierung + Routentausch (10 Starter: 50 statt 80 min).
+- Aus der Excel übernommen: beim Flash-Format nur **Anzahl Boulder** eingeben, Aufteilung automatisch
+  (aufgerundet/Rest: 6 = 3+3, 5 = 3+2) → `flashTotal`.
+- Änderungen an Formaten/Regeln immer in **beiden** (Website und Excel) nachziehen.
 
 ## Offen / zu klären
 
