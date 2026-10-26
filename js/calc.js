@@ -64,16 +64,13 @@
   /* ---------- Gemeinsame Vorlauf-Ereignisse ---------- */
   function preEvents(r, sop, res, opt) {
     const warm = num(r.warmup, 90);
-    res.events.push({ key: 'warmup', t: sop - warm, label: 'Öffnung Aufwärmbereich', minor: true });
+    res.events.push({ key: 'warmup', t: sop - warm, label: 'Öffnung Aufwärmbereich' });
     if (warm < 60) res.warnings.push(W('error', `Aufwärmbereich öffnet nur ${dur(warm)} vor Start of Play – nie später als 60 min (Allg. 6.4 A).`, 'warmup'));
     else if (warm < 90) res.warnings.push(W('should', `Aufwärmbereich öffnet nur ${dur(warm)} vor Start of Play – sollte ≥ 90 min sein (Allg. 6.4 A).`, 'warmup'));
     if (opt.iso) {
       const iso = num(r.isoClose, 30);
       res.events.push({ key: 'iso', t: sop - iso, label: 'Schließung Isolationszone' });
       if (iso < 30) res.warnings.push(W('should', `Isolation schließt nur ${dur(iso)} vor Start of Play – sollte ≥ 30 min sein (Allg. 6.4 B).`, 'iso'));
-    }
-    if (opt.demo) {
-      res.events.push({ key: 'demo', t: sop - 60, label: 'Routendemonstration (spätestens)', minor: true });
     }
   }
 
@@ -112,7 +109,7 @@
     const cleanEvery = Math.max(1, Math.round(num(r.cleanEvery, 20)));
     const cleanDur = num(r.cleanDur, 10);
     const cleaning = n > 22;
-    preEvents(r, sop, res, { iso: onsight, demo: !onsight });
+    preEvents(r, sop, res, { iso: onsight });
 
     if (cleaning) {
       if (cleanEvery > 22) res.warnings.push(W('error', `Reinigungsintervall ${cleanEvery} Starter – darf nicht mehr als 22 sein (Lead 4.3).`));
@@ -120,52 +117,68 @@
     }
     const slot = (pos) => pos * s + (cleaning ? Math.floor(pos / cleanEvery) * cleanDur : 0);
     const routeLen = n ? slot(n - 1) + s : 0;
-    const cleanEvents = (off, routeName) => {
+    const cleanEvents = (tf, routeName) => {
       if (!cleaning) return;
       for (let p = cleanEvery; p < n; p += cleanEvery) {
-        res.events.push({ key: 'clean', t: sop + off + slot(p) - cleanDur, label: `Reinigung ${routeName} (${dur(cleanDur)}) nach Startplatz ${p}`, minor: true });
+        res.events.push({ key: 'clean', t: sop + tf(p) - cleanDur, label: `Reinigung ${routeName} (${dur(cleanDur)}) nach Startplatz ${p}`, minor: true });
       }
     };
 
     let first = sop;
     if (onsight) first = obsAndPres(r, sop, res, 6);
 
-    const rows = [];
     if (fmtL === 'flash2') {
+      // Startreihenfolge Route 2 um die halbe Starterzahl versetzt (Lead 2.1)
       const k = Math.floor(n / 2);
       const seq = r.routeMode === 'seq';
       const base = seq ? routeLen + (cleaning ? cleanDur : 0) : 0;
-      const restFor = (o) => {
+      // E = eingefügte Pause: parallel zwischen 1. und 2. Durchgang (Routentausch), nacheinander vor Route 2
+      const t1 = (p, E) => slot(p) + (!seq && p >= k ? E : 0);
+      const t2 = (q, E) => (seq ? base + E : 0) + slot(q) + (!seq && q >= n - k ? E : 0);
+      const restFor = (E) => {
         let min = Infinity;
         for (let p = 0; p < n; p++) {
-          const q = (p - k + n) % n;
-          const a = slot(p), b = o + slot(q);
-          const rest = a <= b ? b - (a + s) : a - (b + s);
-          if (rest < min) min = rest;
+          const a = t1(p, E), b = t2((p - k + n) % n, E);
+          min = Math.min(min, a <= b ? b - (a + s) : a - (b + s));
         }
         return min;
       };
-      // 50 min Ruhezeit (Lead 4.4): Route 2 automatisch so weit verschieben wie nötig (5-min-Raster)
-      let off = base;
-      if (n > 1 && restFor(off) < 50) {
-        while (restFor(off) < 50 && off < 24 * 60) off += 5;
-        res.warnings.push(W('auto', `50-min-Ruhezeit eingefügt: Route 2 startet ${seq ? dur(off - base) + ' nach Ende von Route 1' : dur(off) + ' nach Route 1'} (${fmt(sop + off)}), sonst nur ${dur(restFor(base))} Pause (Lead 4.4).`, 'r2'));
+      // 50 min Ruhezeit (Lead 4.4) automatisch einfügen, 5-min-Raster
+      let E = 0;
+      const rest0 = n > 1 ? restFor(0) : Infinity;
+      if (rest0 < 50) {
+        E = Math.ceil((50 - rest0) / 5) * 5;
+        while (restFor(E) < 50) E += 5;
       }
+      const T1 = (p) => t1(p, E), T2 = (q) => t2(q, E);
+      if (seq) {
+        res.events.push({ key: 'sop', t: sop, label: `Start Route 1 (${n} Starter)` });
+        res.events.push({ key: 'r2', t: sop + T2(0), label: 'Start Route 2' });
+        if (cleaning) res.events.push({ key: 'clean', t: sop + routeLen, label: `Reinigung (${dur(cleanDur)}) zwischen Route 1 und 2`, minor: true });
+        if (E) res.warnings.push(W('auto', `50-min-Ruhezeit eingefügt: Route 2 startet ${dur(E)} nach Ende von Route 1 (${fmt(sop + T2(0))}), sonst nur ${dur(rest0)} Pause (Lead 4.4).`, 'r2'));
+      } else {
+        res.events.push({ key: 'sop', t: sop, label: `Start Route 1 + 2 (${n} Starter, je ${n - k} / ${k} pro Durchgang)` });
+        if (E) {
+          const swap = sop + Math.min(T1(k), T2(n - k));
+          res.events.push({ key: 'pause', t: swap - E, label: `Pause (${dur(E)})` });
+          res.events.push({ key: 'r2', t: swap, label: 'Routentausch: 2. Durchgang Route 1 + 2' });
+          res.warnings.push(W('auto', `50-min-Ruhezeit eingefügt: ${dur(E)} Pause nach dem 1. Durchgang, danach Routentausch (${fmt(swap)}), sonst nur ${dur(rest0)} Pause (Lead 4.4).`, 'r2'));
+        }
+      }
+      cleanEvents(T1, 'Route 1'); cleanEvents(T2, 'Route 2');
+      let endRel = 0;
+      const rows = [];
       for (let p = 0; p < n; p++) {
         const q = (p - k + n) % n;
-        const a = sop + slot(p), b = sop + off + slot(q);
-        const rest = a <= b ? b - (a + s) : a - (b + s);
-        rows.push({ nr: p + 1, r1: a, r1pos: p + 1, r2: b, r2pos: q + 1, rest });
+        const a = T1(p), b = T2(q);
+        endRel = Math.max(endRel, a + s, b + s);
+        rows.push([p + 1, fmt(sop + a), q + 1, fmt(sop + b), { v: dur(a <= b ? b - (a + s) : a - (b + s)), warn: (a <= b ? b - (a + s) : a - (b + s)) < 50 }]);
       }
-      res.events.push({ key: 'sop', t: sop, label: off ? `Start of Play Route 1 (${n} Starter)` : `Start of Play Route 1 + 2 (${n} Starter)` });
-      if (off) res.events.push({ key: 'r2', t: sop + off, label: 'Start Route 2' });
-      cleanEvents(0, 'Route 1'); cleanEvents(off, 'Route 2');
-      if (seq && cleaning) res.events.push({ key: 'clean', t: sop + routeLen, label: `Reinigung (${dur(cleanDur)}) zwischen Route 1 und 2`, minor: true });
-      res.end = sop + Math.max(routeLen, off + routeLen);
-      res.detail = { cols: ['Startplatz R1', 'Route 1', 'Startplatz R2', 'Route 2', 'Pause'], rows: rows.map((x) => [x.r1pos, fmt(x.r1), x.r2pos, fmt(x.r2), { v: dur(x.rest), warn: x.rest < 50 }]) };
+      res.end = sop + endRel;
+      res.detail = { cols: ['Startplatz R1', 'Route 1', 'Startplatz R2', 'Route 2', 'Pause'], rows };
     } else {
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter)` });
-      cleanEvents(0, 'Route');
+      res.events.push({ key: 'sop', t: sop, label: `Start Route (${n} Starter)` });
+      cleanEvents(slot, 'Route');
       res.end = sop + routeLen;
       res.detail = { cols: ['Startplatz', 'Start'], rows: Array.from({ length: n }, (_, p) => [p + 1, fmt(sop + slot(p))]) };
     }
@@ -177,7 +190,7 @@
     const n = Math.max(0, Math.round(num(r.starters, 0)));
     const bf = r.boulderFormat || 'interval';
     const onsight = (r.sight || 'onsight') === 'onsight';
-    preEvents(r, sop, res, { iso: onsight, demo: !onsight });
+    preEvents(r, sop, res, { iso: onsight });
     const B = Math.max(1, Math.round(num(r.boulders, 4)));
     let obsLen = 0;
     if (r.obsMode === 'per') obsLen = 2 * B;
@@ -191,7 +204,7 @@
       // Mit Pausen-Rotation: Boulder in jeder zweiten Rotation (Schema World Climbing / Judge Guide 5.2)
       const step = r.restRot ? 2 : 1;
       const R = n + (B - 1) * step;
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter · ${B} Boulder · ${I} min + 15 s${r.restRot ? ' · mit Pausen-Rotation' : ''})` });
+      res.events.push({ key: 'sop', t: sop, label: `Start (${n} Starter · ${B} Boulder · ${I} min + 15 s${r.restRot ? ' · mit Pausen-Rotation' : ''})` });
       res.end = n ? sop + R * rot - CH : sop;
       res.info = `${R} Rotationen à ${I} min + 15 s`;
       const cols = ['Startplatz'];
@@ -212,7 +225,7 @@
         minRest = Math.min(minRest, second - (firstSet + b));
         maxEnd = Math.max(maxEnd, second + b);
       });
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter · 2 Sets à ${b} Boulder · ${I} min + 15 s)` });
+      res.events.push({ key: 'sop', t: sop, label: `Start (${n} Starter · 2 Sets à ${b} Boulder · ${I} min + 15 s)` });
       res.end = n ? sop + maxEnd * rot - CH : sop;
       res.info = `${maxEnd} Rotationen à ${I} min + 15 s`;
       if (n > 1 && minRest < 3) {
@@ -227,7 +240,7 @@
       const brk = num(r.blockBreak, 0);
       const blocks = Math.ceil(B / P);
       const per = n ? (n + P - 1) * rot : 0;
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play (${n} Starter · ${B} Boulder, ${P} parallel · ${dur(rot)} Rotation)` });
+      res.events.push({ key: 'sop', t: sop, label: `Start (${n} Starter · ${B} Boulder, ${P} parallel · ${dur(rot)} Rotation)` });
       for (let j = 1; j < blocks; j++) {
         res.events.push({ key: 'block', t: sop + j * (per + brk), label: `Start Boulder ${j * P + 1}${P > 1 ? '–' + Math.min(B, (j + 1) * P) : ''}`, minor: true });
       }
@@ -238,7 +251,7 @@
       res.detail = { cols, rows: Array.from({ length: n }, (_, i) => [i + 1].concat(Array.from({ length: blocks }, (_, j) => fmt(sop + j * (per + brk) + i * rot, true)))) };
     } else {
       const d = num(r.jamDur, 120);
-      res.events.push({ key: 'sop', t: sop, label: `Start of Play JAM (${n} Starter · ${dur(d)})` });
+      res.events.push({ key: 'sop', t: sop, label: `Start JAM (${n} Starter · ${dur(d)})` });
       res.end = sop + d;
     }
   }
@@ -281,7 +294,7 @@
       phases.push({ name: 'Finale (Medal Race)', races: 1, medal: true, fromAll: true });
     }
     let t = sop, minGap = Infinity, prev = null;
-    res.events.push({ key: 'sop', t: sop, label: `Start of Play Finale (Wettkampfbaum ${Q})` });
+    res.events.push({ key: 'sop', t: sop, label: `Start Finale (Wettkampfbaum ${Q})` });
     phases.forEach((ph, idx) => {
       if (idx > 0) {
         t += brk;
@@ -311,14 +324,14 @@
 
   function speed(r, sop, res) {
     const sf = r.speedFormat || 'quali';
-    preEvents(r, sop, res, { iso: false, demo: false });
+    preEvents(r, sop, res, { iso: false });
     res.first = sop;
     if (sf === 'training') {
       if (num(r.trainDur, 0) > 0) {
         res.events.push({ key: 'sop', t: sop, label: `Start Training (${dur(num(r.trainDur, 0))})` });
         res.end = sop + num(r.trainDur, 0);
       } else speedQuali(r, sop, res, 'Start Training');
-    } else if (sf === 'quali') speedQuali(r, sop, res, 'Start of Play');
+    } else if (sf === 'quali') speedQuali(r, sop, res, 'Start');
     else {
       res.first = obsAndPres(Object.assign({}, r, { presentation: false }), sop, res, 0);
       speedFinal(r, sop, res);

@@ -50,6 +50,13 @@
     </div>
     <div id="roundList"></div>
     <p id="emptyRounds" class="empty muted">Noch keine Runde angelegt. Füge oben eine Lead-, Boulder- oder Speed-Runde hinzu – oder lade das Beispiel.</p>
+
+    <div class="card" id="itemsCard">
+      <h2>Weitere Programmpunkte</h2>
+      <p class="muted small" style="margin:-4px 0 10px">Feste Uhrzeiten wie Technical Meeting, Eröffnung oder Siegerehrung.</p>
+      <div id="itemList"></div>
+      <div id="itemPresets" class="chips" style="margin-top:10px"></div>
+    </div>
   </section>
 
   <section class="plan" aria-label="Ablaufplan">
@@ -60,6 +67,7 @@
           <p id="planSub" class="muted small"></p>
         </div>
         <div class="switches no-print">
+          <button type="button" class="mini" data-additem="">+ Programmpunkt</button>
           <label class="switch"><input type="checkbox" id="showMinor" checked> Nebenpunkte</label>
           <label class="switch"><input type="checkbox" id="printWarn"> Warnungen mitdrucken</label>
         </div>

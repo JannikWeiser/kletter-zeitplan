@@ -13,7 +13,7 @@
   const openMore = new Set();
   let results = [];
 
-  function emptyComp() { return { name: '', date: today(), walls: [], rounds: [] }; }
+  function emptyComp() { return { name: '', date: today(), walls: [], rounds: [], items: [] }; }
   function load() { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(comp)); } catch (e) { /* privater Modus */ } }
 
@@ -172,25 +172,42 @@
   }
 
   /* ---------- Ablaufplan ---------- */
-  function renderPlan() {
-    const showMinor = $('#showMinor').checked;
-    const wallName = (id) => (comp.walls.find((w) => w.id === id) || {}).name || '';
+  const MERGE = new Set(['warmup', 'iso']);
+
+  function planRows() {
     const rows = [];
     results.forEach((res) => {
       const r = res.round;
       const day = r.day || comp.date || '';
-      res.events.forEach((ev) => {
-        const ws = res.warnings.filter((w) => w.at === ev.key);
-        rows.push({ day, t: ev.t, ev, r, res, ws });
-      });
-      // Warnungen ohne passendes Ereignis an den Start hängen
       const keys = new Set(res.events.map((e) => e.key));
       const orphan = res.warnings.filter((w) => !keys.has(w.at));
-      if (orphan.length) { const s = rows.find((x) => x.res === res && x.ev.key === 'sop'); if (s) s.ws = s.ws.concat(orphan); }
+      res.events.forEach((ev) => {
+        let ws = res.warnings.filter((w) => w.at === ev.key);
+        if (ev.key === 'sop') ws = ws.concat(orphan);
+        rows.push({ day, t: ev.t, key: ev.key, label: ev.label, minor: ev.minor, rounds: [r], ws: ws.map((w) => Object.assign({ cat: r.category }, w)) });
+      });
     });
-    const ord = { warmup: 0, demo: 1, iso: 2, obs: 3, pres: 4, sop: 5 };
-    rows.sort((a, b) => a.day.localeCompare(b.day) || a.t - b.t || ((ord[a.ev.key] ?? 9) - (ord[b.ev.key] ?? 9)));
-    const visible = rows.filter((x) => showMinor || !x.ev.minor || x.ws.length);
+    (comp.items || []).forEach((it) => {
+      const t = C.toMin(it.time);
+      if (t == null || !it.title) return;
+      rows.push({ day: it.day || comp.date || '', t, key: 'item', label: it.title, rounds: [], item: it, ws: [] });
+    });
+    const ord = { item: -1, warmup: 0, iso: 2, obs: 3, pres: 4, sop: 5 };
+    rows.sort((x, y) => x.day.localeCompare(y.day) || x.t - y.t || ((ord[x.key] ?? 9) - (ord[y.key] ?? 9)));
+    // Gleiche Punkte mehrerer Kategorien zur selben Zeit zusammenfassen (z. B. Öffnung Aufwärmbereich)
+    const merged = [];
+    rows.forEach((x) => {
+      const prev = merged.find((m) => MERGE.has(x.key) && m.key === x.key && m.day === x.day && Math.abs(m.t - x.t) < 0.01 && m.label === x.label);
+      if (prev) { prev.rounds = prev.rounds.concat(x.rounds); prev.ws = prev.ws.concat(x.ws); } else merged.push(x);
+    });
+    return merged;
+  }
+
+  function renderPlan() {
+    const showMinor = $('#showMinor').checked;
+    const wallName = (id) => (comp.walls.find((w) => w.id === id) || {}).name || '';
+    const rows = planRows();
+    const visible = rows.filter((x) => showMinor || !x.minor || x.ws.length);
 
     const cnt = { error: 0, rest: 0, auto: 0, should: 0, info: 0 };
     results.forEach((res) => res.warnings.forEach((w) => { cnt[w.level]++; }));
@@ -205,7 +222,7 @@
 
     $('#planTitle').textContent = comp.name ? comp.name : 'Ablaufplan';
     const days = [...new Set(rows.map((x) => x.day))];
-    $('#planSub').textContent = results.length ? `Ablaufplan · ${days.map(fmtDay).join(', ')} · ${results.length} Runde${results.length > 1 ? 'n' : ''}` : '';
+    $('#planSub').textContent = rows.length ? `Ablaufplan · ${days.map(fmtDay).join(', ')} · ${results.length} Runde${results.length !== 1 ? 'n' : ''}` : '';
 
     if (!visible.length) { $('#planBody').innerHTML = '<p class="muted empty">Der Ablaufplan erscheint hier, sobald Runden angelegt sind.</p>'; return; }
     let html = '', curDay = null;
@@ -215,16 +232,49 @@
         curDay = x.day;
         html += `<div class="day-title">${esc(fmtDay(x.day))}</div><table class="plan-table"><colgroup><col class="c-time"><col class="c-cat"><col><col class="c-wall"></colgroup><thead><tr><th>Zeit</th><th>Kategorie</th><th>Programmpunkt</th><th class="wallcol">Wand</th></tr></thead><tbody>`;
       }
-      const walls = (x.r.walls || []).map(wallName).filter(Boolean).join(', ');
-      const ws = x.ws.map((w) => `<span class="rowwarn ${w.level}">${esc(w.text)}</span>`).join('');
-      html += `<tr class="${x.ev.minor ? 'minor' : 'main'} jump" data-jump="${x.r.id}">
+      const multi = x.rounds.length > 1;
+      const walls = [...new Set(x.rounds.flatMap((r) => r.walls || []))].map(wallName).filter(Boolean).join(', ');
+      const ws = x.ws.map((w) => `<span class="rowwarn ${w.level}">${multi && w.cat ? esc(w.cat) + ': ' : ''}${esc(w.text)}</span>`).join('');
+      let cat;
+      if (x.item) cat = `<span class="dot item"></span>${esc(x.item.note || 'Allgemein')}`;
+      else {
+        const dots = [...new Set(x.rounds.map((r) => r.discipline))].map((d) => `<span class="dot ${d}"></span>`).join('');
+        const names = [...new Set(x.rounds.map((r) => r.category || '–'))].join(', ');
+        const sub = [...new Set(x.rounds.map((r) => `${C.DISC[r.discipline]} · ${C.PHASES[r.phase]}`))].join(' / ');
+        cat = `${dots}${esc(names)}<small>${esc(sub)}</small>`;
+      }
+      const jump = x.item ? `data-jumpitem="${x.item.id}"` : `data-jump="${x.rounds[0].id}"`;
+      html += `<tr class="${x.minor ? 'minor' : 'main'}${x.item ? ' item-row' : ''} jump" ${jump}>
         <td class="time">${C.fmt(x.t)}</td>
-        <td class="cat"><span class="dot ${x.r.discipline}"></span>${esc(x.r.category || '–')}<small>${esc(C.DISC[x.r.discipline])} · ${esc(C.PHASES[x.r.phase])}</small></td>
-        <td class="ev">${esc(x.ev.label)}${ws}</td>
+        <td class="cat">${cat}</td>
+        <td class="ev">${esc(x.label)}${ws}</td>
         <td class="wallcol">${esc(walls)}</td></tr>`;
     });
     html += '</tbody></table>';
     $('#planBody').innerHTML = html;
+  }
+
+  /* ---------- Eigene Programmpunkte ---------- */
+  const PRESETS = ['Registration', 'Technical Meeting', 'Eröffnung', 'Mittagspause', 'Siegerehrung'];
+  function renderItems() {
+    comp.items = comp.items || [];
+    $('#itemList').innerHTML = comp.items.map((it) => `<div class="item" id="item-${it.id}">
+        <input type="time" value="${esc(it.time)}" data-item="${it.id}" data-ik="time" aria-label="Uhrzeit">
+        <input type="text" value="${esc(it.title)}" data-item="${it.id}" data-ik="title" placeholder="Programmpunkt" aria-label="Programmpunkt">
+        <input type="text" value="${esc(it.note || '')}" data-item="${it.id}" data-ik="note" placeholder="Für wen / Ort" aria-label="Für wen oder Ort">
+        <input type="date" value="${esc(it.day || '')}" data-item="${it.id}" data-ik="day" aria-label="Tag (falls abweichend)" title="Tag (falls abweichend)">
+        <button type="button" class="icon" data-delitem="${it.id}" aria-label="Programmpunkt entfernen">×</button>
+      </div>`).join('');
+    $('#itemPresets').innerHTML = PRESETS.map((p) => `<button type="button" class="wchip" data-additem="${esc(p)}">+ ${esc(p)}</button>`).join('') + '<button type="button" class="wchip" data-additem="">+ Eigener Punkt</button>';
+  }
+  function addItem(title) {
+    comp.items = comp.items || [];
+    const it = { id: uid(), time: '', title, note: '', day: '' };
+    comp.items.push(it);
+    renderItems(); recompute();
+    const el = document.getElementById('item-' + it.id);
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('input[data-ik="time"]', el).focus();
   }
 
   function fmtDay(iso) {
@@ -249,6 +299,7 @@
     $('#compDate').value = comp.date || '';
     renderWalls();
     renderRounds();
+    renderItems();
     recompute();
   }
 
@@ -263,6 +314,11 @@
     const t = e.target;
     if (t.id === 'compName') { comp.name = t.value; recompute(); return; }
     if (t.id === 'compDate') { comp.date = t.value; recompute(); return; }
+    if (t.dataset.item) {
+      const it = (comp.items || []).find((x) => x.id === t.dataset.item);
+      if (it) { it[t.dataset.ik] = t.value; recompute(); }
+      return;
+    }
     const id = t.dataset.id, k = t.dataset.k;
     if (!id || !k || t.dataset.struct) return;
     const r = findRound(id); if (!r) return;
@@ -289,8 +345,11 @@
   });
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-seg],[data-wall],[data-toggle],[data-dup],[data-del],[data-apply],[data-add],[data-delwall],[data-jump]');
+    const t = e.target.closest('[data-additem],[data-delitem],[data-jumpitem],[data-seg],[data-wall],[data-toggle],[data-dup],[data-del],[data-apply],[data-add],[data-delwall],[data-jump]');
     if (!t) return;
+    if (t.dataset.additem !== undefined) { addItem(t.dataset.additem); return; }
+    if (t.dataset.delitem) { comp.items = comp.items.filter((x) => x.id !== t.dataset.delitem); renderItems(); recompute(); return; }
+    if (t.dataset.jumpitem) { const el = document.getElementById('item-' + t.dataset.jumpitem); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (t.dataset.seg) {
       const r = findRound(t.dataset.id); if (!r) return;
       const k = t.dataset.seg, raw = t.dataset.val;
@@ -385,11 +444,16 @@
         R('lead', 'quali', { category: 'U17 männlich', youth: true, start: '09:30', starters: 4, walls: ['wl'] }),
         R('lead', 'quali', { category: 'Damen', start: '11:00', starters: 26, walls: ['wl'] }),
         R('lead', 'final', { category: 'U17 männlich', youth: true, start: '15:00', starters: 4, walls: ['wl'] }),
-        R('boulder', 'quali', { category: 'U15', youth: true, start: '10:00', starters: 18, walls: ['wb'] }),
+        R('boulder', 'quali', { category: 'U15', youth: true, start: '09:30', starters: 18, walls: ['wb'] }),
         R('boulder', 'final', { category: 'U15', youth: true, start: '14:00', starters: 6, isoClose: 20, walls: ['wb'] }),
         R('speed', 'training', { category: 'Alle', start: '16:00', starters: 16, walls: ['ws'] }),
         R('speed', 'quali', { category: 'Herren', start: '16:30', starters: 16, walls: ['ws'] }),
         R('speed', 'final', { category: 'Herren', start: '17:30', bracket: 8, presentation: true, walls: ['ws'] }),
+      ],
+      items: [
+        { id: uid(), time: '07:30', title: 'Registration', note: 'Alle Kategorien', day: '' },
+        { id: uid(), time: '08:15', title: 'Technical Meeting', note: 'Trainer und Betreuer', day: '' },
+        { id: uid(), time: '18:30', title: 'Siegerehrung', note: 'Alle Kategorien', day: '' },
       ],
     };
   }
