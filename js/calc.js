@@ -372,7 +372,6 @@
     res.result = res.end + (r.phase === 'training' ? 0 : num(r.resultBuffer, 15));
     res.events.push({ key: 'end', t: res.end, label: r.phase === 'training' ? 'Ende Training' : 'Ende der Runde (voraussichtlich)' });
     if (r.phase !== 'training') res.events.push({ key: 'result', t: res.result, label: 'Offizielles Ergebnis (voraussichtlich)', minor: true });
-    if (isYouth(r.category) && res.end > 20 * 60) res.warnings.push(W('should', `Jugendwettkampf endet erst ${fmt(res.end)} – soll bis 20:00 Uhr abgeschlossen sein (Allg. 6.5).`, 'end'));
     const firstEv = Math.min.apply(null, res.events.filter((e) => e.key !== 'warmup' && e.key !== 'demo' && e.key !== 'iso').map((e) => e.t));
     res.occupy = [Math.min(res.first != null ? res.first : sop, firstEv), res.end];
     return res;
@@ -423,13 +422,10 @@
     return results;
   }
 
-  // Jugendkategorie aus dem Namen ableiten (U13–U21, z. B. „U17 männlich“, „U 15“)
-  function isYouth(category) { return /(^|[^a-z0-9])u\s?(13|15|17|19|21)(?![0-9])/i.test(category || ''); }
-
   function label(r) {
     return `${DISC[r.discipline] || ''} ${r.category || ''} ${PHASES[r.phase] || ''}`.replace(/\s+/g, ' ').trim();
   }
 
-  const api = { isYouth, computeAll, computeRound, defaults, toMin, fmt, dur, label, PHASES, PHASE_ORDER, DISC };
+  const api = { computeAll, computeRound, defaults, toMin, fmt, dur, label, PHASES, PHASE_ORDER, DISC };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(this);
