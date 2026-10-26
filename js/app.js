@@ -1,347 +1,294 @@
-/* Oberfläche Zeitplan Kletterwettkampf – Eingabe in Blöcken (Tag + Disziplin + Kategorien + Vorlage) */
+/* Oberfläche Zeitplan Kletterwettkampf
+   1. Kategorien und Format je Disziplin  2. Zeitplan Zeile für Zeile wie in der Ausschreibung
+   Das Tool berechnet nur die Rundenenden und prüft die eingetippten Zeiten gegen das Regelwerk. */
 (function () {
   'use strict';
   const C = window.Calc;
-  const KEY = 'zeitplan.v2';
+  const KEY = 'zeitplan.v3';
   const $ = (s, el) => (el || document).querySelector(s);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Math.random().toString(36).slice(2, 9);
   const today = () => new Date().toISOString().slice(0, 10);
 
   let comp = load() || emptyComp();
-  const open = new Set();
   const openMore = new Set();
-  let results = [];
+  let results = [], checks = { warn: {}, okay: {} };
 
-  function emptyComp() { return { version: 2, name: '', date: today(), walls: [], blocks: [], items: [] }; }
+  function emptyComp() { return { version: 3, name: '', date: today(), disciplines: [], days: [] }; }
   function load() { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(comp)); } catch (e) { /* privater Modus */ } }
 
-  const PHASE_SHORT = { training: 'Training', quali: 'Quali', semi: 'Halbfinale', final: 'Finale' };
-  const DEFAULT_TEMPLATE = { lead: 'djc', boulder: 'bwjc', speed: 's2' };
+  const PHASE_SHORT = { training: 'Training', quali: 'Quali', semi: 'Halbfinale', final: 'Finale', all: 'Komplett' };
+  const DEFAULT_TEMPLATE = { boulder: 'regional', lead: 'djc', speed: 's2' };
+  const ADD_KINDS = [['open', 'Hallenöffnung'], ['reg', 'Registrierung'], ['tm', 'Technical Meeting'], ['round', 'Runde'], ['iso', 'Isolation'], ['pres', 'Präsentation'], ['obs', 'Besichtigung'], ['ceremony', 'Siegerehrung'], ['custom', 'Punkt']];
+  const CAT_KINDS = new Set(['round', 'iso', 'pres', 'obs']);
+  const RANGE_KINDS = new Set(['open', 'reg', 'iso', 'pres', 'obs', 'custom', 'ceremony', 'tm']);
 
-  /* ---------- Werte eines Blocks ---------- */
-  const tpl = (b) => C.TEMPLATES[b.discipline][b.template];
-  const phaseVal = (b, ph, k) => {
-    const o = (b.phases || {})[ph] || {};
-    return o[k] !== undefined ? o[k] : C.blockPhaseSettings(b.discipline, b.template, ph)[k];
+  /* ---------- Hilfen ---------- */
+  const tpl = (d) => C.TEMPLATES[d.discipline][d.template];
+  const allCats = () => comp.disciplines.flatMap((d) => d.cats.map((c) => Object.assign({ disc: d }, c)));
+  const catById = (id) => allCats().find((c) => c.id === id);
+  const joinAnd = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' und ' + a[a.length - 1] : a.join(''));
+  const fmtDay = (iso) => {
+    const d = new Date((iso || '') + 'T12:00:00');
+    return isNaN(d) ? 'Ohne Datum' : d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   };
-  const setPhaseVal = (b, ph, k, v) => { b.phases = b.phases || {}; b.phases[ph] = b.phases[ph] || {}; b.phases[ph][k] = v; };
-  const nextOf = (b, ph) => { b.next = b.next || {}; b.next[ph] = b.next[ph] || { mode: 'auto', time: '', gap: '' }; return b.next[ph]; };
+  const sortLines = (day) => {
+    // nach Uhrzeit; Zeilen ohne Uhrzeit („im Anschluss“) bleiben hinter ihrer Vorgängerzeile
+    let last = -1;
+    const keyed = day.lines.map((l, i) => { const t = C.toMin(l.time); if (t != null) last = t; return { l, k: t != null ? t : last + 0.0001 * (i + 1), i }; });
+    keyed.sort((a, b) => a.k - b.k || a.i - b.i);
+    day.lines = keyed.map((x) => x.l);
+  };
+  const lineDisc = (ln) => comp.disciplines.find((d) => d.id === ln.disc) || comp.disciplines[0];
+
+  /* Bezeichnung einer Zeile, falls nichts eingetragen ist */
+  function autoLabel(ln) {
+    const names = (ln.cats || []).map((id) => (catById(id) || {}).name).filter(Boolean);
+    const multiDisc = comp.disciplines.length > 1;
+    if (ln.kind === 'round') {
+      const d = lineDisc(ln);
+      const catNames = names.length ? names : (d ? d.cats.map((c) => c.name).filter(Boolean) : []);
+      const dtxt = multiDisc && d ? ` ${C.DISC[d.discipline]}` : '';
+      if (ln.phase === 'all') return `Wettkampf${dtxt} ${joinAnd(catNames)} (Training, Qualifikation, Finale)`.replace(/\s+/g, ' ');
+      return `${C.PHASES[ln.phase] || 'Runde'}${dtxt} ${joinAnd(catNames)}`.trim();
+    }
+    const base = C.KIND_LABEL[ln.kind] || '';
+    return names.length ? `${base} ${joinAnd(names)}` : base;
+  }
+  const labelOf = (ln) => ln.label || autoLabel(ln);
+
+  /* ---------- Rechnen ---------- */
+  function recompute() {
+    const rounds = C.compileSchedule(comp);
+    results = C.computeAll(Object.assign({}, comp, { rounds }), { plain: true });
+    checks = C.checkSchedule(comp, results);
+  }
+  const lineResults = (ln) => results.filter((r) => r.round.line === ln.id && r.sop != null);
+  const lineEnd = (ln) => { const rs = lineResults(ln); return rs.length ? Math.max.apply(null, rs.map((r) => r.end)) : null; };
 
   /* ---------- Bausteine ---------- */
-  const OPT = {
-    leadFormat: [['flash2', 'Flash · 2 Routen'], ['flash1', 'Flash · 1 Route'], ['onsight', 'On Sight']],
-    routeMode: [['par', 'parallel'], ['seq', 'nacheinander']],
-    boulderQuali: [['interval', 'Intervall'], ['flash2sets', '2 Kurse'], ['jam', 'JAM']],
-    boulderSemi: [['interval', 'Intervall']],
-    boulderFinal: [['worldseries', 'World Series'], ['finInterval', 'Intervall'], ['classic', 'Classic'], ['onebyone', 'One by one']],
-    sight: [['onsight', 'On Sight'], ['flash', 'Flash']],
-    obsMode: [['none', 'keine'], ['per', '2 min je Boulder'], ['joint', '8 min gemeinsam']],
-    groups: [[1, '1 Gruppe'], [2, '2 Startgruppen']],
-    lanes: [[2, 'Speed 2'], [4, 'Speed 4']],
-    bracket: [['auto', 'auto'], [4, '4'], [8, '8'], [16, '16'], [32, '32']],
-    presWhen: [['medal', 'vor den Medal Races'], ['semi', 'vor dem Halbfinale']],
-    layout: [['seq', 'nacheinander'], ['par', 'parallel']],
-    nextMode: [['auto', 'automatisch'], ['time', 'Uhrzeit']],
-  };
-
-  // Segment-Knöpfe und Zahlenfelder für Phasen-Einstellungen (data-ph) oder Block-Einstellungen (ohne data-ph)
-  function seg(b, ph, k, opts, cur) {
-    const v = cur !== undefined ? cur : phaseVal(b, ph, k);
-    return `<div class="seg" role="group">${opts.map(([val, t]) => `<button type="button" class="${String(v) === String(val) ? 'on' : ''}" data-seg="${k}" data-val="${val}" data-b="${b.id}"${ph ? ` data-ph="${ph}"` : ''}>${esc(t)}</button>`).join('')}</div>`;
-  }
-  function numf(b, ph, k, label, unit, step) {
-    return `<label class="nf">${esc(label)}<span class="num"><input type="number" inputmode="decimal" min="0" step="${step || 1}" value="${esc(phaseVal(b, ph, k))}" data-b="${b.id}" data-ph="${ph}" data-k="${k}">${unit ? `<em>${unit}</em>` : ''}</span></label>`;
+  function seg(attrs, key, opts, cur) {
+    return `<div class="seg" role="group">${opts.map(([v, t]) => `<button type="button" class="${String(cur) === String(v) ? 'on' : ''}" data-seg="${key}" data-val="${v}" ${attrs}>${esc(t)}</button>`).join('')}</div>`;
   }
   const row = (html) => `<div class="frow">${html}</div>`;
   const lab = (t, html) => `<div class="lab">${esc(t)}${html}</div>`;
 
-  /* Einstellungen einer Phase (unter „Details aus der Vorlage“) */
-  function phaseDetails(b, ph) {
-    const d = b.discipline, v = (k) => phaseVal(b, ph, k);
+  /* ---------- 1. Kategorien und Format ---------- */
+  const OPT = {
+    leadFormat: [['flash2', 'Flash · 2 Routen'], ['flash1', 'Flash · 1 Route'], ['onsight', 'On Sight']],
+    routeMode: [['par', 'parallel'], ['seq', 'nacheinander']],
+    boulderQuali: [['interval', 'Intervall'], ['flash2sets', '2 Gruppen'], ['jam', 'JAM']],
+    boulderSemi: [['interval', 'Intervall']],
+    boulderFinal: [['finInterval', 'Intervall'], ['worldseries', 'World Series'], ['classic', 'Classic'], ['onebyone', 'One by one']],
+    sight: [['flash', 'Flash'], ['onsight', 'On Sight']],
+    obsMode: [['joint', '8 min gemeinsam'], ['per', '2 min je Boulder']],
+    lanes: [[2, 'Speed 2'], [4, 'Speed 4']],
+    bracket: [['auto', 'auto'], [4, '4'], [8, '8'], [16, '16'], [32, '32']],
+  };
+  function phaseVal(d, ph, k) { return C.discSettings(d, ph)[k]; }
+  function pnum(d, ph, k, label, unit, step) {
+    return `<label class="nf">${esc(label)}<span class="num"><input type="number" inputmode="decimal" min="0" step="${step || 1}" value="${esc(phaseVal(d, ph, k))}" data-disc="${d.id}" data-ph="${ph}" data-k="${k}">${unit ? `<em>${unit}</em>` : ''}</span></label>`;
+  }
+  function dnum(d, k, label, unit, step) {
+    return `<label class="nf">${esc(label)}<span class="num"><input type="number" min="0" step="${step || 1}" value="${esc(C.discVal(d, k))}" data-disc="${d.id}" data-dk="${k}">${unit ? `<em>${unit}</em>` : ''}</span></label>`;
+  }
+  function pseg(d, ph, k, opts) { return seg(`data-disc="${d.id}" data-ph="${ph}"`, k, opts, phaseVal(d, ph, k)); }
+
+  function phaseFormat(d, ph) {
+    const v = (k) => phaseVal(d, ph, k);
     let h = '', f = '';
-    if (d === 'lead') {
-      h += row(seg(b, ph, 'leadFormat', OPT.leadFormat));
-      if (v('leadFormat') === 'flash2') h += row(lab('Routen', seg(b, ph, 'routeMode', OPT.routeMode)) + lab('Startgruppen', seg(b, ph, 'groups', OPT.groups)));
-      f += numf(b, ph, 'attempt', 'Ø Versuch', 'min', 0.5);
-      f += numf(b, ph, 'cleanEvery', 'Reinigung ab 23 Startern alle', 'Starter') + numf(b, ph, 'cleanDur', 'Dauer Reinigung', 'min');
-      if (v('leadFormat') === 'onsight') f += numf(b, ph, 'isoClose', 'Isolation schließt vorher', 'min', 5) + numf(b, ph, 'obsBefore', 'Besichtigung (6 min) beginnt vorher', 'min');
-    } else if (d === 'boulder') {
-      const bf = v('boulderFormat');
-      const F = C.BOULDER_FORMATS[bf] || {};
+    if (d.discipline === 'lead') {
+      h += row(pseg(d, ph, 'leadFormat', OPT.leadFormat) + (v('leadFormat') === 'flash2' ? lab('Routen', pseg(d, ph, 'routeMode', OPT.routeMode)) : ''));
+      f += pnum(d, ph, 'attempt', 'Ø Versuch', 'min', 0.5);
+      f += pnum(d, ph, 'cleanEvery', 'Reinigung (ab 23) alle', 'Starter') + pnum(d, ph, 'cleanDur', 'Dauer Reinigung', 'min');
+    } else if (d.discipline === 'boulder') {
+      const bf = v('boulderFormat'), F = C.BOULDER_FORMATS[bf] || {};
       const opts = ph === 'final' ? OPT.boulderFinal : ph === 'semi' ? OPT.boulderSemi : OPT.boulderQuali;
-      h += row(seg(b, ph, 'boulderFormat', opts) + (ph === 'quali' ? seg(b, ph, 'sight', OPT.sight) : ''));
-      if (bf === 'interval' && ph === 'quali') h += row(lab('Startgruppen', seg(b, ph, 'groups', OPT.groups)));
-      if (bf === 'flash2sets') f += numf(b, ph, 'setSize', 'Kurs A', 'Boulder') + numf(b, ph, 'setSize2', 'Kurs B', 'Boulder');
-      else if (bf !== 'jam') f += numf(b, ph, 'boulders', 'Boulder', '');
-      if (F.fixed) f += numf(b, ph, 'interval', 'Intervall', 'min + 15 s', 0.5);
-      else if (bf !== 'jam') f += numf(b, ph, 'rotation', 'Rotation', 'min', 0.25);
-      if (bf === 'jam') f += numf(b, ph, 'jamDur', 'Dauer', 'min', 5);
-      if (v('sight') === 'onsight') f += numf(b, ph, 'isoClose', 'Isolation schließt vorher', 'min', 5);
-      h += row(lab('Gemeinsame Besichtigung', seg(b, ph, 'obsMode', OPT.obsMode)));
-      if (v('obsMode') !== 'none') f += numf(b, ph, 'obsBefore', 'Besichtigung beginnt vorher (leer = auto)', 'min');
+      h += row(pseg(d, ph, 'boulderFormat', opts) + (ph === 'quali' ? pseg(d, ph, 'sight', OPT.sight) : ''));
+      if (bf === 'flash2sets') f += pnum(d, ph, 'setSize', 'Gruppe A', 'Boulder') + pnum(d, ph, 'setSize2', 'Gruppe B', 'Boulder');
+      else if (bf !== 'jam') f += pnum(d, ph, 'boulders', 'Boulder', '');
+      if (F.fixed) f += pnum(d, ph, 'interval', 'Intervall', 'min + 15 s', 0.5);
+      else if (bf !== 'jam') f += pnum(d, ph, 'rotation', 'Rotation', 'min', 0.25);
+      if (bf === 'jam') f += pnum(d, ph, 'jamDur', 'Dauer', 'min', 5);
+      if (ph === 'final') h += row(lab('Besichtigung', pseg(d, ph, 'obsMode', OPT.obsMode)));
     } else {
-      h += row(seg(b, ph, 'lanes', OPT.lanes));
-      f += numf(b, ph, 'raceTime', 'Zeit pro Race', 'min', 0.25);
-      if (ph === 'training') f += numf(b, ph, 'trainDur', 'feste Dauer (0 = wie Quali)', 'min', 5);
+      h += row(pseg(d, ph, 'lanes', OPT.lanes));
+      f += pnum(d, ph, 'raceTime', 'Zeit pro Race', 'min', 0.25);
+      if (ph === 'training') f += pnum(d, ph, 'trainDur', 'feste Dauer (0 = wie Quali)', 'min', 5);
       if (ph === 'final') {
-        h += row(lab('Wettkampfbaum', seg(b, ph, 'bracket', OPT.bracket.filter(([x]) => x !== 32 || Number(v('lanes')) === 4))));
-        f += numf(b, ph, 'phaseBreak', 'Pause zw. Phasen', 'min');
+        h += row(lab('Wettkampfbaum', pseg(d, ph, 'bracket', OPT.bracket.filter(([x]) => x !== 32 || Number(v('lanes')) === 4))));
+        f += pnum(d, ph, 'phaseBreak', 'Pause zw. Phasen', 'min');
+        h += row(`<label class="check"><input type="checkbox" data-disc="${d.id}" data-ph="${ph}" data-k="presentation"${v('presentation') ? ' checked' : ''}> Präsentation vor den Medal Races</label>`);
       }
     }
-    if (ph === 'final') {
-      h += row(`<label class="check"><input type="checkbox" data-b="${b.id}" data-ph="${ph}" data-k="presentation"${v('presentation') ? ' checked' : ''}> ${d === 'speed' ? 'Präsentation der Finalisten' : 'Vorstellung der Finalist*innen'}</label>` + (d === 'speed' && v('presentation') ? seg(b, ph, 'presWhen', OPT.presWhen) : ''));
-      if (v('presentation')) f += numf(b, ph, 'presDur', 'Dauer Vorstellung', 'min') + numf(b, ph, 'presPause', 'Pause bis Start', 'min');
-    }
-    f += numf(b, ph, 'warmup', 'Aufwärmen öffnet vorher', 'min', 5);
-    if (ph !== 'training') f += numf(b, ph, 'resultBuffer', 'Ende → Ergebnis', 'min', 5);
     return `<div class="phase-detail"><p class="fs-title">${esc(C.PHASES[ph])}</p>${h}<div class="fgrid">${f}</div></div>`;
   }
 
-  /* ---------- Blöcke ---------- */
-  function newBlock(discipline) {
-    const lastDay = comp.blocks.length ? comp.blocks[comp.blocks.length - 1].day : '';
-    return { id: uid(), discipline, template: DEFAULT_TEMPLATE[discipline], day: lastDay || comp.date, start: '09:00',
-      cats: [{ id: uid(), name: '', starters: 20, lane: comp.walls[0] ? comp.walls[0].id : '' }], phases: {}, next: {}, layout: '', laneGap: '', pairFinals: false };
-  }
-
-  function catsSummary(b) {
-    const names = (b.cats || []).map((c) => c.name).filter(Boolean);
-    return names.length ? names.join(', ') : 'keine Kategorie';
-  }
-
-  function blockResults(b) { return results.filter((x) => x.round.block === b.id); }
-
-  function badgeHtml(ws) {
-    const c = { error: 0, rest: 0, auto: 0, should: 0, info: 0 };
-    ws.forEach((w) => { c[w.level]++; });
-    const labT = { error: '!', rest: '⏱', auto: '⏱', should: '?', info: 'i' };
-    return Object.keys(c).filter((k) => c[k]).map((k) => `<span class="badge ${k}">${labT[k]} ${c[k]}</span>`).join('');
-  }
-
-  function renderBlocks() {
-    results = C.computeAll(Object.assign({}, comp, { rounds: C.compileBlocks(comp) }));
-    $('#emptyBlocks').hidden = comp.blocks.length > 0;
-    $('#blockList').innerHTML = comp.blocks.map((b) => {
-      const t = tpl(b);
-      const tplOpts = Object.entries(C.TEMPLATES[b.discipline]).map(([k, x]) => `<option value="${k}"${b.template === k ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
-      const quotaCols = t.phases.filter((p) => p === 'semi' || (p === 'final' && b.discipline !== 'speed'));
-      const lanes = comp.walls.length > 0;
-      const head = `<tr><th>Kategorie</th><th class="n">Starter</th>${quotaCols.map((p) => `<th class="n">${PHASE_SHORT[p]}</th>`).join('')}${lanes ? '<th>Wand / Set</th>' : ''}<th></th></tr>`;
-      const rows = b.cats.map((c) => `<tr>
-          <td><input type="text" value="${esc(c.name)}" data-b="${b.id}" data-cat="${c.id}" data-ck="name" placeholder="z. B. U17 w" aria-label="Kategorie"></td>
-          <td class="n"><input type="number" min="0" value="${esc(c.starters)}" data-b="${b.id}" data-cat="${c.id}" data-ck="starters" aria-label="Starter"></td>
-          ${quotaCols.map((p) => `<td class="n"><input type="number" min="0" value="${esc(c[p] != null && c[p] !== '' ? c[p] : (t.quota[p] || ''))}" data-b="${b.id}" data-cat="${c.id}" data-ck="${p}" aria-label="Quote ${PHASE_SHORT[p]}"></td>`).join('')}
-          ${lanes ? `<td><select data-b="${b.id}" data-cat="${c.id}" data-ck="lane" aria-label="Wand"><option value="">–</option>${comp.walls.map((w) => `<option value="${w.id}"${c.lane === w.id ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</select></td>` : ''}
-          <td><button type="button" class="icon" data-delcat="${c.id}" data-b="${b.id}" aria-label="Kategorie entfernen">×</button></td></tr>`).join('');
-      // Startzeiten: erste Runde fest, weitere automatisch oder Uhrzeit
-      let starts = `<label class="nf">${esc(PHASE_SHORT[t.phases[0]])} ab<input type="time" value="${esc(b.start)}" data-b="${b.id}" data-bk="start"></label>`;
-      t.phases.slice(1).forEach((ph) => {
-        const nx = nextOf(b, ph);
-        const base = t.phases[0] === 'training' && ph === 'quali' ? 'end' : 'result';
-        const gapDef = base === 'end' ? 15 : C.NEXT_GAP[b.discipline];
-        starts += `<div class="lab">${esc(PHASE_SHORT[ph])}${seg(b, '', 'nextMode:' + ph, OPT.nextMode, nx.mode)}</div>`;
-        starts += nx.mode === 'time'
-          ? `<label class="nf">Uhrzeit<input type="time" value="${esc(nx.time)}" data-b="${b.id}" data-next="${ph}" data-nk="time"></label>`
-          : `<label class="nf">${base === 'end' ? 'nach Ende' : 'nach Ergebnis'}<span class="num"><input type="number" min="0" step="5" value="${esc(nx.gap !== '' && nx.gap != null ? nx.gap : gapDef)}" data-b="${b.id}" data-next="${ph}" data-nk="gap"><em>min</em></span></label>`;
-      });
-      const hasLater = t.phases.some((p) => p === 'semi' || p === 'final');
-      let extra = '';
-      if (hasLater && b.discipline !== 'speed' && b.cats.length > 1) extra += lab('Halbfinale / Finale der Kategorien', seg(b, '', 'layout', OPT.layout, b.layout || (b.discipline === 'boulder' ? 'par' : 'seq')));
-      if (b.discipline === 'speed' && b.cats.length > 1) extra += `<label class="check"><input type="checkbox" data-b="${b.id}" data-bk="pairFinals"${b.pairFinals ? ' checked' : ''}> Finals paarweise verschränken</label>`;
-      const laneGap = `<label class="nf">Wechsel zwischen Kategorien<span class="num"><input type="number" min="0" step="5" value="${esc(b.laneGap !== '' && b.laneGap != null ? b.laneGap : C.LANE_GAP[b.discipline])}" data-b="${b.id}" data-bk="laneGap"><em>min</em></span></label>`;
-      return `<article class="card round d-${b.discipline}${open.has(b.id) ? ' open' : ''}" id="block-${b.id}">
-        <div class="round-head" data-toggle="${b.id}">
-          <span class="chev">▶</span>
-          <div class="title"><b data-title></b><span data-sum></span></div>
-          <div class="badges" data-badges></div>
-        </div>
-        <div class="round-body">
-          ${row(`<label class="nf">Tag<input type="date" value="${esc(b.day)}" data-b="${b.id}" data-bk="day"></label><label class="nf grow">Vorlage<select data-b="${b.id}" data-bk="template">${tplOpts}</select></label>`)}
-          <table class="cats"><thead>${head}</thead><tbody>${rows}</tbody></table>
-          <button type="button" class="mini" data-addcat="${b.id}">+ Kategorie</button>
-          ${row(starts)}
-          ${extra ? row(extra) : ''}
-          <div class="warns" data-warns></div>
-          <details class="more" data-more="${b.id}:adv"${openMore.has(b.id + ':adv') ? ' open' : ''}><summary>Details aus der Vorlage <span class="muted small">(Formate, Zeiten – Standard nach Regelwerk)</span></summary>
-            <div class="fgrid">${laneGap}</div>
-            ${t.phases.map((ph) => phaseDetails(b, ph)).join('')}
-          </details>
-          <details class="more" data-more="${b.id}:det"${openMore.has(b.id + ':det') ? ' open' : ''}><summary>Startzeiten je Kategorie</summary><div data-detail></div></details>
-          <div class="round-actions">
-            <button type="button" class="mini" data-dup="${b.id}">Duplizieren</button>
-            <button type="button" class="mini" data-del="${b.id}">Löschen</button>
-          </div>
-        </div>
+  function renderDiscs() {
+    $('#emptyDisc').hidden = comp.disciplines.length > 0;
+    $('#discList').innerHTML = comp.disciplines.map((d) => {
+      const t = tpl(d);
+      const quotaCols = t.phases.filter((p) => p === 'semi' || (p === 'final' && d.discipline !== 'speed'));
+      const tplOpts = Object.entries(C.TEMPLATES[d.discipline]).map(([k, x]) => `<option value="${k}"${d.template === k ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
+      const rows = d.cats.map((c) => `<tr>
+          <td><input type="text" value="${esc(c.name)}" data-disc="${d.id}" data-cat="${c.id}" data-ck="name" placeholder="z. B. Damen" aria-label="Kategorie"></td>
+          <td class="n"><input type="number" min="0" value="${esc(c.starters)}" data-disc="${d.id}" data-cat="${c.id}" data-ck="starters" aria-label="Starter"></td>
+          ${quotaCols.map((p) => `<td class="n"><input type="number" min="0" value="${esc(c[p] != null && c[p] !== '' ? c[p] : (t.quota[p] || ''))}" data-disc="${d.id}" data-cat="${c.id}" data-ck="${p}" aria-label="Quote ${PHASE_SHORT[p]}"></td>`).join('')}
+          <td><button type="button" class="icon" data-delcat="${c.id}" data-disc="${d.id}" aria-label="Kategorie entfernen">×</button></td></tr>`).join('');
+      const general = (d.discipline === 'speed' ? dnum(d, 'stageGap', 'Pause Training → Quali → Finale', 'min') : '')
+        + dnum(d, 'laneGap', 'Wechsel bei „nacheinander“', 'min') + dnum(d, 'resultBuffer', 'Ende → Ergebnis', 'min', 5)
+        + (d.discipline !== 'speed' ? dnum(d, 'presDur', 'Präsentation dauert', 'min') : '')
+        + (d.discipline === 'boulder' ? dnum(d, 'callZone', 'Call Zone vor Start', 'min') : '');
+      return `<article class="card disc d-${d.discipline}" id="disc-${d.id}">
+        <div class="disc-head"><span class="pill tag-${d.discipline}">${esc(C.DISC[d.discipline])}</span>
+          <select data-disc="${d.id}" data-dk="template" aria-label="Format-Vorlage">${tplOpts}</select>
+          <button type="button" class="icon" data-deldisc="${d.id}" aria-label="Disziplin entfernen">×</button></div>
+        <ul class="fmt-sum">${t.phases.map((p) => `<li><b>${esc(C.PHASES[p])}:</b> ${esc(C.phaseSummary(d, p))}</li>`).join('')}</ul>
+        <table class="cats"><thead><tr><th>Kategorie</th><th class="n">Starter</th>${quotaCols.map((p) => `<th class="n">${PHASE_SHORT[p]}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>
+        <button type="button" class="mini" data-addcat="${d.id}">+ Kategorie</button>
+        <details class="more" data-more="${d.id}:fmt"${openMore.has(d.id + ':fmt') ? ' open' : ''}><summary>Format anpassen</summary>
+          <div class="fgrid">${general}</div>${t.phases.map((p) => phaseFormat(d, p)).join('')}
+        </details>
       </article>`;
     }).join('');
-    updateBlockDynamic();
   }
 
-  function updateBlockDynamic() {
-    comp.blocks.forEach((b) => {
-      const el = document.getElementById('block-' + b.id);
-      if (!el) return;
-      const rs = blockResults(b).filter((x) => x.sop != null);
-      $('[data-title]', el).textContent = `${C.DISC[b.discipline]} · ${catsSummary(b)}`;
-      const span = rs.length ? `${C.fmt(Math.min.apply(null, rs.map((x) => x.sop)))} – ${C.fmt(Math.max.apply(null, rs.map((x) => x.end)))}` : 'Startzeit fehlt';
-      $('[data-sum]', el).textContent = `${fmtDayShort(b.day || comp.date)} · ${span} · ${tpl(b).label}`;
-      const ws = blockResults(b).flatMap((x) => x.warnings.map((w) => Object.assign({ who: `${x.round.category} ${PHASE_SHORT[x.round.phase]}` }, w)));
-      $('[data-badges]', el).innerHTML = badgeHtml(ws);
-      $('[data-warns]', el).innerHTML = ws.map((w) => `<div class="warn ${w.level}"><span><b>${esc(w.who)}:</b> ${esc(w.text)}</span></div>`).join('');
-      $('[data-detail]', el).innerHTML = blockResults(b).map((x) => {
-        const det = x.detail;
-        if (!det || !det.rows.length) return '';
-        return `<p class="fs-title" style="margin-top:10px">${esc(x.round.category)} · ${esc(C.PHASES[x.round.phase])} · ${C.fmt(x.sop)}–${C.fmt(x.end)}</p><div class="detail-wrap"><table><thead><tr>${det.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${det.rows.map((r) => `<tr>${r.map((c) => typeof c === 'object' && c ? `<td class="${c.warn ? 'warncell' : ''}">${esc(c.v)}</td>` : `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-      }).join('');
-    });
+  /* ---------- 2. Zeitplan-Zeilen ---------- */
+  function lineHtml(day, ln) {
+    const isRound = ln.kind === 'round';
+    const d = isRound ? lineDisc(ln) : null;
+    let sub = '';
+    if (CAT_KINDS.has(ln.kind) && allCats().length > 1) {
+      const pool = isRound && d ? d.cats.map((c) => Object.assign({ disc: d }, c)) : allCats();
+      const eff = (ln.cats || []).length ? ln.cats : pool.map((c) => c.id);
+      sub += `<div class="chips-row"><span class="lab-inline">für</span>${pool.map((c) => `<button type="button" class="wchip${eff.includes(c.id) ? ' on' : ''}" data-chip="${c.id}" data-line="${ln.id}" data-day="${day.id}">${esc(c.name || '?')}</button>`).join('')}</div>`;
+    }
+    if (isRound) {
+      if (comp.disciplines.length > 1) sub += row(seg(`data-line="${ln.id}" data-day="${day.id}"`, 'disc', comp.disciplines.map((x) => [x.id, C.DISC[x.discipline]]), ln.disc));
+      if (d) {
+        const phases = tpl(d).phases.map((p) => [p, C.PHASES[p]]);
+        if (d.discipline === 'speed') phases.push(['all', 'Training + Quali + Finale']);
+        const nCats = (ln.cats || []).length || d.cats.length;
+        const lay = [['par', 'parallel'], ['seq', 'nacheinander']].concat(d.discipline === 'speed' && ln.phase === 'final' ? [['pair', 'verschränkt']] : []);
+        sub += row(seg(`data-line="${ln.id}" data-day="${day.id}"`, 'phase', phases, ln.phase) + (nCats > 1 ? seg(`data-line="${ln.id}" data-day="${day.id}"`, 'layout', lay, ln.layout || (d.discipline === 'speed' ? 'seq' : 'par')) : ''));
+      }
+      sub += `<div class="calc" data-calc="${ln.id}"></div><details class="more starts" data-more="${ln.id}:st"${openMore.has(ln.id + ':st') ? ' open' : ''}><summary>Startzeiten</summary><div data-starts="${ln.id}"></div></details>`;
+    }
+    sub += `<div class="warns" data-warns="${ln.id}"></div>`;
+    return `<div class="line k-${ln.kind}" id="line-${ln.id}">
+      <input type="time" value="${esc(ln.time)}" data-line="${ln.id}" data-day="${day.id}" data-lk="time" aria-label="Uhrzeit" title="leer = im Anschluss">
+      ${RANGE_KINDS.has(ln.kind) ? `<input type="time" value="${esc(ln.until)}" data-line="${ln.id}" data-day="${day.id}" data-lk="until" aria-label="bis (optional)" title="bis (optional)">` : '<span class="until-calc" data-endcell="' + ln.id + '"></span>'}
+      <input type="text" value="${esc(ln.label)}" placeholder="${esc(autoLabel(ln))}" data-line="${ln.id}" data-day="${day.id}" data-lk="label" aria-label="Bezeichnung">
+      <button type="button" class="icon" data-delline="${ln.id}" data-day="${day.id}" aria-label="Zeile entfernen">×</button>
+      <div class="line-sub">${sub}</div>
+    </div>`;
   }
 
-  /* ---------- Ablaufplan ---------- */
-  const fmtDay = (iso) => {
-    if (!iso) return 'Ohne Datum';
-    const d = new Date(iso + 'T12:00:00');
-    return isNaN(d) ? iso : d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
-  };
-  const fmtDayShort = (iso) => {
-    const d = new Date((iso || '') + 'T12:00:00');
-    return isNaN(d) ? '' : d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  };
-  const joinAnd = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' und ' + a[a.length - 1] : a.join(''));
-  const wallName = (id) => (comp.walls.find((w) => w.id === id) || {}).name || '';
-
-  /* Zusammenfassung je Tag wie in einer Ausschreibung: nur Eckzeiten je Block und Runde */
-  function summaryLines(day) {
-    const lines = [];
-    (comp.items || []).filter((it) => (it.day || comp.date) === day).forEach((it) => {
-      const t = C.toMin(it.time); if (t == null || !it.title) return;
-      const u = C.toMin(it.until);
-      lines.push({ t, label: it.title + (it.note ? ` (${it.note})` : ''), time: u != null ? `${C.fmt(t)} bis ${C.fmt(u)} Uhr` : `${C.fmt(t)} Uhr`, item: it.id });
-    });
-    const dayRes = results.filter((x) => x.round.day === day && x.sop != null);
-    const warm = dayRes.map((x) => (x.events.find((e) => e.key === 'warmup') || {}).t).filter((t) => t != null);
-    if (warm.length) lines.push({ t: Math.min.apply(null, warm) - 0.001, label: 'Öffnung Warm-up', time: `${C.fmt(Math.min.apply(null, warm))} Uhr` });
-    const blocks = comp.blocks.filter((b) => (b.day || comp.date) === day);
-    const tag = (b) => (blocks.length > 1 ? ` ${C.DISC[b.discipline]} (${catsSummary(b)})` : '');
-    blocks.forEach((b) => {
-      tpl(b).phases.forEach((ph) => {
-        const rs = dayRes.filter((x) => x.round.block === b.id && x.round.phase === ph);
-        if (!rs.length) return;
-        const pre = (key, labelT) => {
-          const evs = rs.map((x) => ({ x, e: x.events.find((e) => e.key === key) })).filter((y) => y.e);
-          if (!evs.length) return;
-          const times = [...new Set(evs.map((y) => C.fmt(y.e.t)))];
-          const tm = times.length === 1 ? `${times[0]} Uhr` : evs.map((y) => `${C.fmt(y.e.t)} (${y.x.round.category})`).join(', ');
-          lines.push({ t: Math.min.apply(null, evs.map((y) => y.e.t)), label: labelT + tag(b), time: tm, block: b.id });
-        };
-        pre('iso', 'Isolation schließt');
-        pre('pres', b.discipline === 'speed' ? 'Präsentation der Finalisten' : 'Vorstellung der Finalist*innen');
-        pre('obs', 'Besichtigung');
-        const s0 = Math.min.apply(null, rs.map((x) => x.sop)), e0 = Math.max.apply(null, rs.map((x) => x.end));
-        lines.push({ t: s0, label: C.PHASES[ph] + tag(b), time: `${C.fmt(s0)} bis ${C.fmt(e0)} Uhr`, main: true, block: b.id });
-      });
-    });
-    lines.sort((a, b) => a.t - b.t);
-    return lines;
+  function renderDays() {
+    $('#dayList').innerHTML = comp.days.map((day) => {
+      const cats = dayCats(day);
+      return `<article class="card day-card" id="day-${day.id}">
+        <div class="day-head">
+          <input type="date" value="${esc(day.date)}" data-day="${day.id}" data-dk="date" aria-label="Datum">
+          <input type="text" value="${esc(day.title)}" placeholder="${esc(cats.length ? joinAnd(cats) : 'Überschrift (optional)')}" data-day="${day.id}" data-dk="title" aria-label="Überschrift des Tages">
+          <button type="button" class="icon" data-delday="${day.id}" aria-label="Tag entfernen">×</button>
+        </div>
+        <div class="lines">${day.lines.map((ln) => lineHtml(day, ln)).join('') || '<p class="muted small">Noch keine Zeile – unten hinzufügen.</p>'}</div>
+        <div class="chips add-lines">${ADD_KINDS.map(([k, t]) => `<button type="button" class="wchip" data-addline="${k}" data-day="${day.id}">+ ${esc(t)}</button>`).join('')}</div>
+      </article>`;
+    }).join('') || '<p class="muted small">Noch kein Tag. „Zeitplan vorschlagen“ füllt einen regelkonformen Plan vor – oder lege mit „+ Tag“ selbst los.</p>';
+    updateLines();
   }
 
-  function detailRows(day) {
-    const MERGE = new Set(['iso', 'pres', 'obs']);
-    const rows = [];
-    results.filter((x) => x.round.day === day).forEach((res) => {
-      res.events.forEach((ev) => {
-        if (ev.key === 'warmup' || ev.key === 'change') return;
-        rows.push({ t: ev.t, key: ev.key, label: ev.label, minor: ev.minor, rounds: [res.round] });
-      });
+  function dayCats(day) {
+    const ids = new Set();
+    day.lines.filter((l) => l.kind === 'round').forEach((l) => {
+      const d = lineDisc(l); if (!d) return;
+      ((l.cats || []).length ? l.cats : d.cats.map((c) => c.id)).forEach((id) => ids.add(id));
     });
-    rows.sort((a, b) => a.t - b.t);
-    const merged = [];
-    rows.forEach((x) => {
-      const prev = merged.find((m) => MERGE.has(x.key) && m.key === x.key && Math.abs(m.t - x.t) < 0.01 && m.label === x.label);
-      if (prev) prev.rounds = prev.rounds.concat(x.rounds); else merged.push(x);
-    });
-    return merged;
+    return allCats().filter((c) => ids.has(c.id)).map((c) => c.name).filter(Boolean);
+  }
+
+  /* berechnete Werte, Hinweise und Startzeiten je Zeile aktualisieren (ohne die Eingabe neu zu zeichnen) */
+  function updateLines() {
+    comp.days.forEach((day) => day.lines.forEach((ln) => {
+      const ws = checks.warn[ln.id] || [], ok = checks.okay[ln.id] || [];
+      const wEl = document.querySelector(`[data-warns="${ln.id}"]`);
+      if (wEl) wEl.innerHTML = ws.map((w) => `<div class="warn ${w.level}">${esc(w.text)}</div>`).join('') + (ln.kind === 'round' && !ws.some((w) => w.level === 'error' || w.level === 'should') && ok.length ? `<div class="okline">✓ ${esc(ok.join(' · '))}</div>` : '');
+      const inp = document.querySelector(`input[data-line="${ln.id}"][data-lk="label"]`);
+      if (inp) inp.placeholder = autoLabel(ln);
+      if (ln.kind !== 'round') return;
+      const rs = lineResults(ln), end = lineEnd(ln);
+      const cEl = document.querySelector(`[data-calc="${ln.id}"]`);
+      const parts = [...new Set(rs.map((r) => `${r.round.category}: ${C.fmt(r.sop)}–${C.fmt(r.end)}`))];
+      if (cEl) cEl.textContent = rs.length ? `Dauer ${C.dur(end - C.toMin(ln.time))}${rs.length > 1 ? ' · ' + parts.join(' · ') : rs[0].info ? ' · ' + rs[0].info : ''}` : (ln.time ? 'Kategorien und Format oben eintragen' : 'Startzeit eintragen');
+      const eEl = document.querySelector(`[data-endcell="${ln.id}"]`);
+      if (eEl) eEl.textContent = end != null ? '– ' + C.fmt(end) : '';
+      const sEl = document.querySelector(`[data-starts="${ln.id}"]`);
+      if (sEl) sEl.innerHTML = startsHtml(rs);
+    }));
+  }
+
+  function startsHtml(rs) {
+    return rs.map((x) => {
+      const det = x.detail;
+      if (!det || !det.rows.length) return '';
+      return `<p class="fs-title" style="margin-top:8px">${esc(x.round.category)} · ${esc(C.PHASES[x.round.phase])} · ${C.fmt(x.sop)}–${C.fmt(x.end)}</p><div class="detail-wrap"><table><thead><tr>${det.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${det.rows.map((r) => `<tr>${r.map((c) => (typeof c === 'object' && c ? `<td class="${c.warn ? 'warncell' : ''}">${esc(c.v)}</td>` : `<td>${esc(c)}</td>`)).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }).join('');
+  }
+
+  /* ---------- Ausgabe wie Ausschreibung ---------- */
+  function timeText(ln) {
+    const t = C.toMin(ln.time);
+    if (t == null) return 'im Anschluss';
+    if (ln.kind === 'round') { const e = lineEnd(ln); return e != null ? `${C.fmt(t)} bis ca. ${C.fmt(e)} Uhr` : `${C.fmt(t)} Uhr`; }
+    const u = C.toMin(ln.until);
+    return u != null ? `${C.fmt(t)} bis ${C.fmt(u)} Uhr` : `${C.fmt(t)} Uhr`;
   }
 
   function renderPlan() {
-    const showDetail = $('#showDetail').checked;
-    const all = results.flatMap((x) => x.warnings.map((w) => Object.assign({ who: `${C.DISC[x.round.discipline]} ${x.round.category} ${PHASE_SHORT[x.round.phase]}`, day: x.round.day }, w)));
+    const allW = Object.entries(checks.warn).flatMap(([id, ws]) => ws.map((w) => Object.assign({ id }, w)));
     const cnt = { error: 0, rest: 0, auto: 0, should: 0, info: 0 };
-    all.forEach((w) => { cnt[w.level]++; });
+    allW.forEach((w) => { cnt[w.level]++; });
     const sum = [];
     if (cnt.error) sum.push(`<span class="pill err">${cnt.error} ${cnt.error > 1 ? 'Regelverstöße' : 'Regelverstoß'}</span>`);
     if (cnt.rest) sum.push(`<span class="pill rest">${cnt.rest} Ruhezeit-Warnung${cnt.rest > 1 ? 'en' : ''}</span>`);
-    if (cnt.auto) sum.push(`<span class="pill auto">${cnt.auto}× Ruhezeit automatisch eingefügt</span>`);
     if (cnt.should) sum.push(`<span class="pill should">${cnt.should} Empfehlung${cnt.should > 1 ? 'en' : ''}</span>`);
+    if (cnt.auto) sum.push(`<span class="pill auto">${cnt.auto}× Ruhezeit automatisch eingeplant</span>`);
     if (cnt.info) sum.push(`<span class="pill info">${cnt.info} Hinweis${cnt.info > 1 ? 'e' : ''}</span>`);
-    if (!cnt.error && !cnt.rest && !cnt.should && !cnt.info && results.length) sum.unshift('<span class="pill ok">Keine Konflikte gefunden</span>');
+    const hasRounds = comp.days.some((d) => d.lines.some((l) => l.kind === 'round'));
+    if (!cnt.error && !cnt.should && !cnt.rest && hasRounds) sum.unshift('<span class="pill ok">✓ Alle Regeln eingehalten</span>');
     $('#summary').innerHTML = sum.join('');
     $('#planTitle').textContent = comp.name || 'Zeitplan';
-    $('#planSub').textContent = '';
-
-    const days = [...new Set(comp.blocks.map((b) => b.day || comp.date).concat((comp.items || []).filter((i) => i.title && i.time).map((i) => i.day || comp.date)))].sort();
-    if (!days.length) { $('#planBody').innerHTML = '<p class="muted empty">Der Zeitplan erscheint hier, sobald ein Block angelegt ist.</p>'; return; }
+    const showStart = $('#showStart').checked;
+    const days = comp.days.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     $('#planBody').innerHTML = days.map((day) => {
-      const cats = [...new Set(comp.blocks.filter((b) => (b.day || comp.date) === day).flatMap((b) => b.cats.map((c) => c.name).filter(Boolean)))];
-      const lines = summaryLines(day);
-      const ws = all.filter((w) => w.day === day);
-      let h = `<section class="day"><h3 class="day-title">${esc(fmtDay(day))}${cats.length ? ': ' + esc(joinAnd(cats)) : ''}</h3>
-        <table class="sched">${lines.map((l) => `<tr class="${l.main ? 'main' : ''} jump" ${l.item ? `data-jumpitem="${l.item}"` : l.block ? `data-jump="${l.block}"` : ''}><td>${esc(l.label)}</td><td class="tm">${esc(l.time)}</td></tr>`).join('')}</table>`;
-      if (ws.length) h += `<div class="day-warns">${ws.map((w) => `<span class="rowwarn ${w.level}">${esc(w.who)}: ${esc(w.text)}</span>`).join('')}</div>`;
-      if (showDetail) {
-        const rows = detailRows(day);
-        h += `<table class="plan-table"><colgroup><col class="c-time"><col class="c-cat"><col><col class="c-wall"></colgroup><thead><tr><th>Zeit</th><th>Kategorie</th><th>Programmpunkt</th><th class="wallcol">Wand</th></tr></thead><tbody>${rows.map((x) => {
-          const names = [...new Set(x.rounds.map((r) => r.category))].join(', ');
-          const walls = [...new Set(x.rounds.flatMap((r) => r.walls || []))].map(wallName).filter(Boolean).join(', ');
-          return `<tr class="${x.minor ? 'minor' : 'main'} jump" data-jump="${x.rounds[0].block}"><td class="time">${C.fmt(x.t)}</td><td class="cat"><span class="dot ${x.rounds[0].discipline}"></span>${esc(names)}<small>${esc(C.PHASES[x.rounds[0].phase])}</small></td><td class="ev">${esc(x.label)}</td><td class="wallcol">${esc(walls)}</td></tr>`;
-        }).join('')}</tbody></table>`;
-      }
+      const cats = dayCats(day);
+      const title = day.title || joinAnd(cats);
+      const marks = (ln) => { const ws = (checks.warn[ln.id] || []).filter((w) => w.level === 'error' || w.level === 'should'); return ws.length ? ` <span class="mark ${ws.some((w) => w.level === 'error') ? 'error' : 'should'}" title="${esc(ws.map((w) => w.text).join(' | '))}">!</span>` : ''; };
+      let h = `<section class="day"><h3 class="day-title">${esc(fmtDay(day.date))}${title ? ': ' + esc(title) : ''}</h3>
+        <table class="sched">${day.lines.map((ln) => `<tr class="${ln.kind === 'round' ? 'main' : ''} jump" data-jumpline="${ln.id}"><td>${esc(labelOf(ln))}${marks(ln)}</td><td class="tm">${esc(timeText(ln))}</td></tr>`).join('')}</table>`;
+      const dayW = day.lines.flatMap((ln) => (checks.warn[ln.id] || []).map((w) => ({ w, ln })));
+      if (dayW.length) h += `<div class="day-warns">${dayW.map(({ w, ln }) => `<span class="rowwarn ${w.level}">${esc(labelOf(ln))}: ${esc(w.text)}</span>`).join('')}</div>`;
+      if (showStart) h += day.lines.filter((l) => l.kind === 'round').map((l) => startsHtml(lineResults(l))).join('');
       return h + '</section>';
-    }).join('');
+    }).join('') || '<p class="muted empty">Der Zeitplan erscheint hier, sobald Zeilen eingetragen sind.</p>';
   }
 
-  /* ---------- Wände und Programmpunkte ---------- */
-  function renderWalls() {
-    $('#wallList').innerHTML = comp.walls.map((w) => `<span class="chip">${esc(w.name)}<button type="button" data-delwall="${w.id}" aria-label="${esc(w.name)} entfernen">×</button></span>`).join('') || '<span class="muted small">Optional – z. B. Boulder Set 1, Set 2. Kategorien auf derselben Wand laufen nacheinander, auf verschiedenen parallel.</span>';
-  }
-  const PRESETS = ['Registration', 'Technical Meeting'];
-  function renderItems() {
-    comp.items = comp.items || [];
-    $('#itemList').innerHTML = comp.items.map((it) => `<div class="item" id="item-${it.id}">
-        <input type="time" value="${esc(it.time)}" data-item="${it.id}" data-ik="time" aria-label="Beginn">
-        <input type="time" value="${esc(it.until || '')}" data-item="${it.id}" data-ik="until" aria-label="Ende (optional)" title="Ende (optional)">
-        <input type="text" value="${esc(it.title)}" data-item="${it.id}" data-ik="title" placeholder="Programmpunkt" aria-label="Programmpunkt">
-        <button type="button" class="icon" data-delitem="${it.id}" aria-label="Programmpunkt entfernen">×</button>
-        <input type="date" value="${esc(it.day || '')}" data-item="${it.id}" data-ik="day" aria-label="Tag" title="Tag (leer = erster Tag)">
-        <input type="text" value="${esc(it.note || '')}" data-item="${it.id}" data-ik="note" placeholder="Für wen / Ort (optional)" aria-label="Für wen oder Ort">
-      </div>`).join('');
-    $('#itemPresets').innerHTML = PRESETS.map((p) => `<button type="button" class="wchip" data-additem="${esc(p)}">+ ${esc(p)}</button>`).join('') + '<button type="button" class="wchip" data-additem="">+ Eigener Punkt</button>';
-  }
-  function addItem(title) {
-    const it = { id: uid(), time: '', until: '', title, note: '', day: '' };
-    comp.items.push(it);
-    renderItems(); recompute();
-    const el = document.getElementById('item-' + it.id);
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    $('input[data-ik="time"]', el).focus();
-  }
-
-  function recompute() {
-    results = C.computeAll(Object.assign({}, comp, { rounds: C.compileBlocks(comp) }));
-    updateBlockDynamic();
-    renderPlan();
-    save();
-  }
   function renderAll() {
     $('#compName').value = comp.name || '';
     $('#compDate').value = comp.date || '';
-    renderWalls(); renderItems(); renderBlocks(); renderPlan(); save();
+    recompute(); renderDiscs(); renderDays(); renderPlan(); save();
   }
+  function refresh() { recompute(); updateLines(); renderPlan(); save(); }
 
   /* ---------- Ereignisse ---------- */
-  const findBlock = (id) => comp.blocks.find((b) => b.id === id);
+  const findDisc = (id) => comp.disciplines.find((d) => d.id === id);
+  const findDay = (id) => comp.days.find((d) => d.id === id);
+  const findLine = (day, id) => (day ? day.lines.find((l) => l.id === id) : null);
   const toVal = (t) => (t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.value);
+  const setPhase = (d, ph, k, v) => { d.phases = d.phases || {}; d.phases[ph] = d.phases[ph] || {}; d.phases[ph][k] = v; };
 
   document.addEventListener('toggle', (e) => {
     const k = e.target.dataset && e.target.dataset.more;
@@ -350,109 +297,143 @@
 
   document.addEventListener('input', (e) => {
     const t = e.target;
-    if (t.id === 'compName') { comp.name = t.value; recompute(); return; }
-    if (t.id === 'compDate') { comp.date = t.value; recompute(); return; }
-    if (t.dataset.item) {
-      const it = comp.items.find((x) => x.id === t.dataset.item);
-      if (it) { it[t.dataset.ik] = t.value; recompute(); }
-      return;
+    if (t.id === 'compName') { comp.name = t.value; refresh(); return; }
+    if (t.id === 'compDate') { comp.date = t.value; refresh(); return; }
+    if (t.tagName === 'SELECT' || t.type === 'checkbox') return;
+    if (t.dataset.line) {
+      const ln = findLine(findDay(t.dataset.day), t.dataset.line); if (!ln) return;
+      ln[t.dataset.lk] = t.value; refresh(); return;
     }
-    if (t.tagName === 'SELECT' || t.type === 'checkbox') return; // über „change“
-    const b = findBlock(t.dataset.b); if (!b) return;
-    if (t.dataset.cat) { const c = b.cats.find((x) => x.id === t.dataset.cat); if (c) c[t.dataset.ck] = toVal(t); }
-    else if (t.dataset.next) nextOf(b, t.dataset.next)[t.dataset.nk] = t.value;
-    else if (t.dataset.ph) setPhaseVal(b, t.dataset.ph, t.dataset.k, toVal(t));
-    else if (t.dataset.bk) b[t.dataset.bk] = toVal(t);
-    recompute();
+    if (t.dataset.day && t.dataset.dk) { const day = findDay(t.dataset.day); if (day) { day[t.dataset.dk] = t.value; refresh(); } return; }
+    const d = findDisc(t.dataset.disc); if (!d) return;
+    if (t.dataset.cat) { const c = d.cats.find((x) => x.id === t.dataset.cat); if (c) c[t.dataset.ck] = toVal(t); refresh(); renderDayChipsLabels(); return; }
+    if (t.dataset.ph) setPhase(d, t.dataset.ph, t.dataset.k, toVal(t));
+    else if (t.dataset.dk) d[t.dataset.dk] = toVal(t);
+    refresh();
+    const sum = document.querySelector(`#disc-${d.id} .fmt-sum`);
+    if (sum) sum.innerHTML = tpl(d).phases.map((p) => `<li><b>${esc(C.PHASES[p])}:</b> ${esc(C.phaseSummary(d, p))}</li>`).join('');
   });
+  // Kategorienamen in den Zeitplan-Chips nachziehen, ohne das Eingabefeld zu verlieren
+  function renderDayChipsLabels() {
+    allCats().forEach((c) => document.querySelectorAll(`[data-chip="${c.id}"]`).forEach((b) => { b.textContent = c.name || '?'; }));
+  }
 
   document.addEventListener('change', (e) => {
     const t = e.target;
+    if (t.dataset.line && t.dataset.lk === 'time') { const day = findDay(t.dataset.day); sortLines(day); renderDays(); renderPlan(); save(); return; }
+    if (t.dataset.day && t.dataset.dk === 'date') { renderDays(); renderPlan(); save(); return; }
     if (!(t.tagName === 'SELECT' || t.type === 'checkbox')) return;
-    const b = findBlock(t.dataset.b); if (!b) return;
-    if (t.dataset.cat) { const c = b.cats.find((x) => x.id === t.dataset.cat); if (c) c[t.dataset.ck] = t.value; recompute(); return; }
-    if (t.dataset.ph) setPhaseVal(b, t.dataset.ph, t.dataset.k, toVal(t));
-    else if (t.dataset.bk === 'template') { b.template = t.value; b.phases = {}; b.next = {}; }
-    else if (t.dataset.bk) b[t.dataset.bk] = toVal(t);
-    renderBlocks(); renderPlan(); save();
+    const d = findDisc(t.dataset.disc); if (!d) return;
+    if (t.dataset.ph) setPhase(d, t.dataset.ph, t.dataset.k, toVal(t));
+    else if (t.dataset.dk === 'template') { d.template = t.value; d.phases = {}; }
+    recompute(); renderDiscs(); renderDays(); renderPlan(); save();
   });
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-additem],[data-delitem],[data-jumpitem],[data-seg],[data-toggle],[data-dup],[data-del],[data-addblock],[data-addcat],[data-delcat],[data-delwall],[data-jump]');
+    const t = e.target.closest('[data-seg],[data-chip],[data-addline],[data-delline],[data-delday],[data-adddisc],[data-deldisc],[data-addcat],[data-delcat],[data-jumpline]');
     if (!t) return;
-    if (t.dataset.additem !== undefined) { addItem(t.dataset.additem); return; }
-    if (t.dataset.delitem) { comp.items = comp.items.filter((x) => x.id !== t.dataset.delitem); renderItems(); recompute(); return; }
-    if (t.dataset.jumpitem) { const el = document.getElementById('item-' + t.dataset.jumpitem); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (t.dataset.seg) {
-      const b = findBlock(t.dataset.b); if (!b) return;
       const k = t.dataset.seg, raw = t.dataset.val;
-      const v = raw === 'true' ? true : raw === 'false' ? false : /^\d+$/.test(raw) ? Number(raw) : raw;
-      if (k.startsWith('nextMode:')) nextOf(b, k.split(':')[1]).mode = v;
-      else if (t.dataset.ph) {
-        setPhaseVal(b, t.dataset.ph, k, v);
-        if (k === 'boulderFormat') Object.entries(C.boulderFormatDefaults(v, t.dataset.ph)).forEach(([kk, vv]) => setPhaseVal(b, t.dataset.ph, kk, vv));
-      } else b[k] = v;
-      renderBlocks(); renderPlan(); save();
+      const v = /^\d+$/.test(raw) ? Number(raw) : raw;
+      if (t.dataset.line) {
+        const ln = findLine(findDay(t.dataset.day), t.dataset.line); if (!ln) return;
+        ln[k] = v;
+        if (k === 'disc') ln.cats = [];
+        if (k === 'phase' && v !== 'final' && ln.layout === 'pair') ln.layout = '';
+      } else {
+        const d = findDisc(t.dataset.disc); if (!d) return;
+        setPhase(d, t.dataset.ph, k, v);
+        if (k === 'boulderFormat') Object.entries(C.boulderFormatDefaults(v, t.dataset.ph)).forEach(([kk, vv]) => { if (!['sight', 'obsMode'].includes(kk) || t.dataset.ph !== 'quali') setPhase(d, t.dataset.ph, kk, vv); });
+        recompute(); renderDiscs();
+      }
+      recompute(); renderDays(); renderPlan(); save();
       return;
     }
-    if (t.dataset.toggle) {
-      const id = t.dataset.toggle;
-      open.has(id) ? open.delete(id) : open.add(id);
-      document.getElementById('block-' + id).classList.toggle('open');
-    } else if (t.dataset.addblock) {
-      const b = newBlock(t.dataset.addblock);
-      comp.blocks.push(b); open.add(b.id); renderBlocks(); renderPlan(); save();
-      document.getElementById('block-' + b.id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (t.dataset.chip) {
+      const ln = findLine(findDay(t.dataset.day), t.dataset.line); if (!ln) return;
+      // keine Auswahl = alle Kategorien; ein Klick nimmt eine Kategorie heraus bzw. wieder hinein
+      const d = ln.kind === 'round' ? lineDisc(ln) : null;
+      const pool = (d ? d.cats : allCats()).map((c) => c.id);
+      const set = new Set((ln.cats || []).length ? ln.cats : pool);
+      set.has(t.dataset.chip) ? set.delete(t.dataset.chip) : set.add(t.dataset.chip);
+      if (!set.size) return;
+      ln.cats = set.size === pool.length ? [] : pool.filter((id) => set.has(id));
+      recompute(); renderDays(); renderPlan(); save();
+    } else if (t.dataset.addline) {
+      const day = findDay(t.dataset.day);
+      const k = t.dataset.addline;
+      const ln = { id: uid(), kind: k, time: '', until: '', label: '', cats: [] };
+      if (k === 'round') {
+        const d = comp.disciplines[0];
+        ln.disc = d ? d.id : '';
+        const used = day.lines.filter((l) => l.kind === 'round').map((l) => l.phase);
+        const phases = d ? tpl(d).phases : ['quali'];
+        ln.phase = phases.find((p) => !used.includes(p)) || phases[phases.length - 1];
+      }
+      day.lines.push(ln);
+      recompute(); renderDays(); renderPlan(); save();
+      const el = $(`#line-${ln.id} input[data-lk="time"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+    } else if (t.dataset.delline) {
+      const day = findDay(t.dataset.day);
+      day.lines = day.lines.filter((l) => l.id !== t.dataset.delline);
+      recompute(); renderDays(); renderPlan(); save();
+    } else if (t.dataset.delday) {
+      const day = findDay(t.dataset.delday);
+      if (day.lines.length && !confirm(`${fmtDay(day.date)} mit allen Zeilen löschen?`)) return;
+      comp.days = comp.days.filter((d) => d !== day);
+      recompute(); renderDays(); renderPlan(); save();
+    } else if (t.dataset.adddisc) {
+      const k = t.dataset.adddisc;
+      comp.disciplines.push({ id: uid(), discipline: k, template: DEFAULT_TEMPLATE[k], phases: {}, cats: [{ id: uid(), name: '', starters: 20 }] });
+      recompute(); renderDiscs(); renderDays(); renderPlan(); save();
+      const inp = document.querySelectorAll('#discList input[data-ck="name"]');
+      if (inp.length) inp[inp.length - 1].focus();
+    } else if (t.dataset.deldisc) {
+      const d = findDisc(t.dataset.deldisc);
+      if (!confirm(`${C.DISC[d.discipline]} mit allen Kategorien entfernen? Runden im Zeitplan verlieren ihre Zuordnung.`)) return;
+      comp.disciplines = comp.disciplines.filter((x) => x !== d);
+      recompute(); renderDiscs(); renderDays(); renderPlan(); save();
     } else if (t.dataset.addcat) {
-      const b = findBlock(t.dataset.addcat);
-      const last = b.cats[b.cats.length - 1];
-      b.cats.push({ id: uid(), name: '', starters: 20, lane: last ? last.lane : '' });
-      renderBlocks(); renderPlan(); save();
-      const inputs = document.querySelectorAll(`#block-${b.id} input[data-ck="name"]`);
-      if (inputs.length) inputs[inputs.length - 1].focus();
+      const d = findDisc(t.dataset.addcat);
+      d.cats.push({ id: uid(), name: '', starters: 20 });
+      recompute(); renderDiscs(); renderDays(); renderPlan(); save();
+      const inp = document.querySelectorAll(`#disc-${d.id} input[data-ck="name"]`);
+      if (inp.length) inp[inp.length - 1].focus();
     } else if (t.dataset.delcat) {
-      const b = findBlock(t.dataset.b);
-      b.cats = b.cats.filter((c) => c.id !== t.dataset.delcat);
-      renderBlocks(); renderPlan(); save();
-    } else if (t.dataset.dup) {
-      const src = findBlock(t.dataset.dup);
-      const copy = JSON.parse(JSON.stringify(src));
-      copy.id = uid(); copy.cats.forEach((c) => { c.id = uid(); });
-      comp.blocks.splice(comp.blocks.indexOf(src) + 1, 0, copy); open.add(copy.id); renderBlocks(); renderPlan(); save();
-    } else if (t.dataset.del) {
-      const b = findBlock(t.dataset.del);
-      if (confirm(`Block „${C.DISC[b.discipline]} · ${catsSummary(b)}“ löschen?`)) { comp.blocks = comp.blocks.filter((x) => x !== b); renderBlocks(); renderPlan(); save(); }
-    } else if (t.dataset.delwall) {
-      const id = t.dataset.delwall;
-      comp.walls = comp.walls.filter((w) => w.id !== id);
-      comp.blocks.forEach((b) => b.cats.forEach((c) => { if (c.lane === id) c.lane = ''; }));
-      renderWalls(); renderBlocks(); renderPlan(); save();
-    } else if (t.dataset.jump) {
-      const id = t.dataset.jump;
-      open.add(id);
-      const el = document.getElementById('block-' + id);
-      if (el) { el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      const d = findDisc(t.dataset.disc);
+      d.cats = d.cats.filter((c) => c.id !== t.dataset.delcat);
+      comp.days.forEach((day) => day.lines.forEach((l) => { l.cats = (l.cats || []).filter((id) => id !== t.dataset.delcat); }));
+      recompute(); renderDiscs(); renderDays(); renderPlan(); save();
+    } else if (t.dataset.jumpline) {
+      const el = document.getElementById('line-' + t.dataset.jumpline);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200); }
     }
   });
 
-  $('#wallForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const name = $('#wallInput').value.trim();
-    if (!name) return;
-    comp.walls.push({ id: 'w' + uid(), name });
-    $('#wallInput').value = '';
-    renderWalls(); renderBlocks(); renderPlan(); save();
+  $('#btnAddDay').addEventListener('click', () => {
+    const last = comp.days.length ? comp.days[comp.days.length - 1].date : '';
+    let date = comp.date;
+    if (last) { const d = new Date(last + 'T12:00:00'); d.setDate(d.getDate() + 1); date = d.toISOString().slice(0, 10); }
+    comp.days.push({ id: uid(), date, title: '', lines: [] });
+    renderDays(); renderPlan(); save();
   });
-  $('#showDetail').addEventListener('change', renderPlan);
+  $('#btnSuggest').addEventListener('click', () => {
+    if (!comp.disciplines.some((d) => d.cats.length)) { alert('Bitte zuerst oben die Disziplin und die Kategorien eintragen.'); return; }
+    if (comp.days.some((d) => d.lines.length) && !confirm('Den bisherigen Zeitplan durch einen Vorschlag ersetzen?')) return;
+    comp.days = C.suggestSchedule(comp, $('#suggestStart').value || '09:00');
+    renderAll();
+  });
+  $('#showStart').addEventListener('change', renderPlan);
   $('#printWarn').addEventListener('change', (e) => document.body.classList.toggle('print-warn', e.target.checked));
   $('#btnPrint').addEventListener('click', () => window.print());
   $('#btnNew').addEventListener('click', () => {
-    if (comp.blocks.length && !confirm('Aktuellen Wettkampf verwerfen und neu beginnen? Vorher ggf. exportieren.')) return;
-    comp = emptyComp(); open.clear(); renderAll();
+    if ((comp.days.length || comp.disciplines.length) && !confirm('Aktuellen Wettkampf verwerfen und neu beginnen? Vorher ggf. exportieren.')) return;
+    comp = emptyComp(); renderAll();
   });
   $('#btnExample').addEventListener('click', () => {
-    if (comp.blocks.length && !confirm('Aktuellen Wettkampf durch das Beispiel ersetzen?')) return;
-    comp = example(); open.clear(); renderAll();
+    if ((comp.days.length || comp.disciplines.length) && !confirm('Aktuellen Wettkampf durch das Beispiel ersetzen?')) return;
+    comp = example(); renderAll();
   });
   $('#btnExport').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(comp, null, 2)], { type: 'application/json' });
@@ -467,28 +448,29 @@
     const f = e.target.files[0]; if (!f) return;
     f.text().then((txt) => {
       const data = JSON.parse(txt);
-      if (!data || !Array.isArray(data.blocks)) throw new Error('format');
-      data.walls = data.walls || []; data.items = data.items || [];
-      comp = data; open.clear(); renderAll();
+      if (!data || !Array.isArray(data.days) || !Array.isArray(data.disciplines)) throw new Error('format');
+      comp = data; renderAll();
     }).catch(() => alert('Die Datei konnte nicht gelesen werden. Bitte eine exportierte Zeitplan-Datei (.json) dieser Version wählen.'));
     e.target.value = '';
   });
 
-  /* ---------- Beispiel (angelehnt an die Ausschreibung BWJC 2026, Boulder) ---------- */
+  /* ---------- Beispiel: Süddeutsche Meisterschaft Bouldern 2026 (Ausschreibung Rosenheim) ---------- */
   function example() {
-    const d1 = '2026-02-07', d2 = '2026-02-08';
-    const walls = [{ id: 'set1', name: 'Set 1' }, { id: 'set2', name: 'Set 2' }];
-    const cat = (name, starters, final, lane) => ({ id: uid(), name, starters, final, lane });
-    const B = (day, cats) => ({ id: uid(), discipline: 'boulder', template: 'bwjc', day, start: '09:00', cats, phases: {}, next: {}, layout: 'par', laneGap: '', pairFinals: false });
-    const item = (day, time, until, title) => ({ id: uid(), day, time, until, title, note: '' });
+    const D = uid(), H = uid(), disc = uid();
+    const L = (kind, time, until, extra) => Object.assign({ id: uid(), kind, time: time || '', until: until || '', label: '', cats: [] }, extra);
     return {
-      version: 2, name: 'BW Jugendcup Bouldern (B1)', date: d1, walls,
-      blocks: [
-        B(d1, [cat('U15+ w', 44, 10, 'set1'), cat('U17 w', 24, 8, 'set2'), cat('U21 w', 9, 8, 'set2')]),
-        B(d2, [cat('U15+ m', 52, 10, 'set1'), cat('U17 m', 27, 8, 'set2'), cat('U21 m', 14, 8, 'set2')]),
+      version: 3, name: 'Süddeutsche Meisterschaft Bouldern', date: '2026-03-07',
+      disciplines: [{ id: disc, discipline: 'boulder', template: 'regional', phases: {},
+        cats: [{ id: D, name: 'Damen', starters: 61, semi: 20, final: 10 }, { id: H, name: 'Herren', starters: 76, semi: 20, final: 10 }] }],
+      days: [
+        { id: uid(), date: '2026-03-07', title: '', lines: [
+          L('reg', '10:00', '10:30', { label: 'Registrierung Bouldern Damen und Herren' }), L('tm', '11:00'),
+          L('round', '11:30', '', { disc, phase: 'quali' })] },
+        { id: uid(), date: '2026-03-08', title: '', lines: [
+          L('iso', '08:00', '09:00', { label: 'Isolation Halbfinale' }), L('round', '10:00', '', { disc, phase: 'semi' }),
+          L('iso', '13:00', '13:30', { label: 'Isolation Finale' }), L('pres', '14:30', '', { label: 'Präsentation Finale' }),
+          L('round', '14:45', '', { disc, phase: 'final' }), L('ceremony', '', '')] },
       ],
-      items: [item('', '08:00', '08:15', 'Registration'), item('', '08:30', '', 'Technical Meeting'),
-        item(d2, '08:00', '08:15', 'Registration'), item(d2, '08:30', '', 'Technical Meeting')],
     };
   }
 

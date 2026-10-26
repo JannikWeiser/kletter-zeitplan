@@ -11,7 +11,7 @@ Bei neuen Festlegungen oder Erkenntnissen diese Datei aktuell halten.
 - Eine Subdomain unter comptools.cloud (CNAME) kommt später – noch nicht anlegen.
 - Dateien:
   - `js/calc.js` – gesamte Rechenlogik (auch per Node testbar: `require('./js/calc.js')`).
-  - `js/app.js` – Oberfläche, Speicherung (localStorage `zeitplan.v1`), Export/Import JSON, Beispiel.
+  - `js/app.js` – Oberfläche, Speicherung (localStorage `zeitplan.v3`), Export/Import JSON, Beispiel.
   - `css/style.css`, `index.html`, `impressum.html`, `datenschutz.html` (vom TI-Rechner übernommen und angepasst).
 - Lokale Vorschau: `.claude/launch.json` → `python3 -m http.server 8765`.
 
@@ -24,13 +24,13 @@ Bei neuen Festlegungen oder Erkenntnissen diese Datei aktuell halten.
 - Weiteres Format-Wissen des Auftraggebers: Projekt `~/Desktop/CallZonemanagement` (ARCHITECTURE.md §5.5–5.7,
   6.12 verschränkte Speed-Finals, 6.17 Boulder-Finalformate) und der TI-Rechner (`~/Desktop/Claude/TI Rechner`).
 - Nach Änderungen: Logik per Node prüfen, im Browser testen, dann committen, pushen und den Pages-Build abwarten.
-- Eingabe soll knapp und übersichtlich bleiben: Auswahlknöpfe statt langer Listen, Details unter „Weitere Einstellungen“.
+- Eingabe soll knapp und übersichtlich bleiben: nur zeigen, was man wirklich ändern muss; Formate unter „Format anpassen“.
 
 ## Allgemeine Regeln (für jede Runde)
 
 - Aufwärmbereich öffnet spätestens 90 min vor dem Start (sollte), nie später als 60 min (muss) – Allg. 6.4 A.
 - Isolation nur bei **On-Sight**-Runden; schließt spätestens 30 min vor dem Start – Allg. 6.4 B.
-  Flash-Runden: keine Isolation (Meldung in der Call Zone). Keine Öffnungszeit der Isolation planen.
+  Flash-Runden: keine Isolation (Meldung in der Call Zone). Isolation wird als Zeile von–bis eingetragen.
 - Präsentation der Finalisten → mindestens 2 min bis zum ersten Versuch – Allg. 6.4 C.
 - Weniger als 4 Registrierte → kein Wettkampf in der Kategorie (Hinweis) – Allg. 6.2.
 - Ende der Runde → offizielles Ergebnis: Standard 15 min (einstellbar).
@@ -92,37 +92,47 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
   (z. B. H 1/8, D 1/4, H 1/4, D 1/2, H 1/2, Präsentation, D Medal Races, H Medal Races);
   die verschränkte Runde übernimmt die Startzeit der gewählten Runde; gemeinsame Präsentation.
 
-## Eingabe: Blöcke mit Vorlagen (seit 2026-10-26)
+## Eingabe (v3, seit 2026-10-26): Zeitplan selbst eintippen, Tool rechnet und prüft
 
-- Ein **Block** = Tag + Disziplin + Kategorien, die zusammen klettern + **Vorlage** (legt Runden und Formate fest).
-  Vorlagen in `C.TEMPLATES` (calc.js): Bouldern `bwjc` (Quali Flash 3+2, Finale Intervall), `djc` (2×3), `dm`
-  (Quali/HF/World Series), `lm`; Lead `djc`, `dm`, `one`; Speed `s2`, `s4` (Training, Quali, Finale).
-- Kategorien als Tabelle: Name, Starter, Quote je Folgerunde (aus Vorlage vorbelegt), Wand/Set.
-  Gleiche Wand → nacheinander (Wechsel Lead/Boulder 10 min, Speed 5 min), verschiedene Wände → parallel.
-- Startzeit nur für die erste Runde; Folgerunden **automatisch** (frühestens Ergebnis + Abstand: Lead 60 min = Regel,
-  Bouldern 90 min, Speed 30 min; Quali nach Training: Ende + 15 min) oder feste Uhrzeit.
-- Halbfinale/Finale mehrerer Kategorien: Bouldern **parallel auf eigenen Bouldern** (vom Auftraggeber bestätigt), Lead **nacheinander** (umschaltbar);
-  nacheinander → nur die erste Kategorie hat die Vorstellung. Speed-Finals optional paarweise verschränkt.
-- `compileBlocks()` erzeugt daraus Runden je Kategorie/Phase (Start-Modi `time`, `after`, `auto`) → `computeAll()`.
-- Formate und Zeiten stehen unter „Details aus der Vorlage“ (je Phase überschreibbar, `block.phases[ph]`).
-- Speicherung `localStorage` `zeitplan.v2`; Export/Import JSON mit `blocks`.
+Auftraggeber-Wunsch: „Nur ändern, was ich wirklich ändern muss“, Zeiten wie in der Ausschreibung selbst eintragen,
+das Tool berechnet nur Rundenenden und gibt Hinweise. Grundlage: Ausschreibungen DM Lead Darmstadt, SDM Bouldern
+Rosenheim (+ Running Order), DJC Braunschweig, BWJC Renningen, LM Speed NRW (in `~/Downloads`, nicht im Repo).
 
-## Ablaufplan und Bedienung
+1. **Kategorien und Format** je Disziplin: Vorlage (`C.TEMPLATES`: Bouldern `regional` (wie SDM), `dm`, `djc`, `bwjc`;
+   Lead `dm`, `djc`, `one`; Speed `s2`, `s4`), Kategorien-Tabelle (Starter, Quote HF/Finale). „Format anpassen“ klappt
+   Formate je Runde und allgemeine Werte auf (Ende → Ergebnis 15 min, Wechsel bei „nacheinander“ 10/10/5 min,
+   Präsentation dauert 5 min, Call Zone 5 min vor Start, Speed: Pause Training → Quali → Finale 10 min).
+2. **Zeitplan** je Tag als Zeilen: Uhrzeit, optional „bis“, Bezeichnung (leer = automatisch), Art:
+   Hallenöffnung, Registrierung, Technical Meeting, Runde, Isolation (von–bis), Präsentation, Besichtigung,
+   Siegerehrung, eigener Punkt. Zeile ohne Uhrzeit = „im Anschluss“. Zeilen sortieren sich nach Uhrzeit.
+   Runde: Phase, Kategorien (Chips, standardmäßig alle), **mehrere Kategorien standardmäßig parallel**
+   (umschaltbar nacheinander; Speed-Finale zusätzlich verschränkt). Speed: „Training + Quali + Finale“ als eine Zeile.
+3. **„Zeitplan vorschlagen“** füllt einmalig einen regelkonformen Plan (Hallenöffnung −120, Registrierung −90…−60,
+   TM −45, Folgerunde = Ergebnis + Abstand (Lead 60, Bouldern 90, Speed 30, On Sight ≥ 90 wegen Isolation),
+   Isolation −90…−30, Bouldern-Finale Präsentation −15 / Besichtigung −10, Lead Besichtigung −20 / Präsentation −10,
+   DM/Regional: Halbfinale + Finale am zweiten Tag ab 10:00).
+- Ausgabe wie Ausschreibung, Runden **immer mit Ende** („11:30 bis ca. 17:09 Uhr“); „Startzeiten anhängen“ druckt
+  die Running Order mit.
+- Code: `compileSchedule()` (Zeilen → Runden, `noPre` = keine eigenen Öffnungs-/Iso-Ereignisse),
+  `computeAll(..., { plain: true })`, `checkSchedule()` (Prüfungen je Rundenzeile), `suggestSchedule()`.
+  Speicherung `localStorage` `zeitplan.v3`.
 
-- Darstellung wie die Ausschreibung BWJC 2026: je Tag „Samstag, 7. Februar: U15+ w, U17 w und U21 w“, darunter nur
-  Eckzeiten: Öffnung Warm-up, Programmpunkte, „Qualifikation 09:00 bis 12:23 Uhr“, Isolation schließt,
-  Vorstellung der Finalist*innen, Besichtigung, Finale. Mehrere Blöcke an einem Tag → Zusatz „Lead (U17 w, U17 m)“.
-- „Detail je Kategorie“ blendet die vollständige chronologische Tabelle ein; Startzeiten je Startplatz im Block.
-- Bouldern-Finale: Vorstellung → Besichtigung → Start (Besichtigung standardmäßig Dauer + 5 min vor dem Start).
-  Lead: Besichtigung → Vorstellung → Start.
-- Öffnung Aufwärmbereich erscheint **einmal pro Tag** (frühester Bedarf); spätere Kategorien nutzen diese Öffnung.
-- Präsentation der Finalisten nur bei Finalrunden.
-- Wände/Bereiche: **keine Belegungsprüfung** (Wunsch des Auftraggebers); dienen der Zuordnung parallel/nacheinander.
-- Weitere Programmpunkte: Vorschläge nur **Registration** und **Technical Meeting** + eigener Punkt; optionale Endzeit.
-- Kein Boulder-2-h-Abstand als Warnung (national nicht geregelt; reale Ausschreibung BWJC liegt darunter).
-- Warnstufen: Regelverstoß (rot) · Ruhezeit unterschritten (orange) · Ruhezeit automatisch eingefügt
-  (orange gestrichelt) · Empfehlung (gelb) · Hinweis (blau).
+### Prüfungen an jeder Rundenzeile (`checkSchedule`)
+- Aufwärmen (Allg. 6.4 A): On Sight → gegen die **Isoöffnung** (vom Auftraggeber bestätigt), sonst gegen die
+  letzte Hallenöffnung des Tages; < 90 min Empfehlung, < 60 min Regelverstoß; fehlt sie → Hinweis.
+- Isolation schließt ≥ 30 min vorher (6.4 B); darf nicht vor Ende der Vorrunde schließen (Fehler) und sollte
+  nicht vor deren Ergebnis öffnen (Empfehlung).
+- Besichtigung (Lead 6 min, Bouldern 8 min bzw. 2 min je Boulder) muss vor dem Start enden.
+- Präsentation (Finale): danach ≥ 2 min bis zum Start (6.4 C), Dauer aus „bis“ oder Standard 5 min.
+- Reihenfolge je Kategorie: nicht vor Ende der Vorrunde (Fehler); Lead ≥ 1 h nach Ergebnis (Lead 4.5);
+  sonst vor dem Ergebnis → Empfehlung.
+- Plus Rechenhinweise: 50-min-Pause Lead, 5-min Speed, Erholung zwischen Boulder-Gruppen, < 4 Starter.
+- Geprüft gegen echte Ausschreibungen: DJC Braunschweig (Iso 16:30 für Finale 17:45 = 75 min → Empfehlung).
+
+### Abgeglichen
+- Running Order SDM Rosenheim (Damen 61, 2 Gruppen B1–B3/B4–B6, 4 min + 15 s): sekundengenau gleich,
+  Ende 16:06; Call Zone dort 5 min vor Start.
 
 ## Offen / zu klären
 
-- Isolation als Zeitfenster („Iso geöffnet 13:30 bis 13:45“) statt nur Schließzeit? Bisher nur Schließzeit (Wunsch des Auftraggebers).
+- Wände/Bereiche sind in v3 entfallen (Parallel/Nacheinander je Zeile) – bei Bedarf als optionales Ort-Feld je Zeile wieder ergänzen.

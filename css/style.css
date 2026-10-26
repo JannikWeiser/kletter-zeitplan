@@ -186,3 +186,53 @@ table.sched tr.main td{font-weight:600}
 .day-warns{display:flex;flex-direction:column;gap:4px;margin-top:8px}
 .day .plan-table{margin-top:12px}
 @media print{ table.sched td{font-size:12px;padding:3px 6px} body:not(.print-warn) .day-warns{display:none} }
+
+/* v3: Schritte, Disziplin-Karten, Zeitplan-Zeilen */
+.sec-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:18px 0 8px}
+.sec-head h2{margin:0;display:flex;align-items:center;gap:8px}
+.step{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:13px}
+.sec-sub{margin:-2px 0 10px}
+.nf.inline{flex-direction:row;align-items:center;gap:6px}
+.nf.inline input{width:110px}
+.disc{border-left:5px solid var(--line)}
+.disc.d-lead{border-left-color:var(--lead)} .disc.d-boulder{border-left-color:var(--boulder)} .disc.d-speed{border-left-color:var(--speed)}
+.disc-head{display:flex;gap:8px;align-items:center}
+.disc-head select{flex:1}
+.pill.tag-boulder{background:var(--boulder-soft);color:var(--boulder)} .pill.tag-lead{background:var(--lead-soft);color:var(--lead)} .pill.tag-speed{background:var(--speed-soft);color:var(--speed)}
+.fmt-sum{margin:8px 0 0;padding:0 0 0 2px;list-style:none;font-size:13px;color:var(--muted)}
+.fmt-sum b{color:var(--text);font-weight:600}
+.day-card{padding:12px 14px}
+.day-head{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:8px;margin-bottom:8px}
+.day-head input[type=date]{font-weight:600}
+.lines{display:flex;flex-direction:column}
+.line{display:grid;grid-template-columns:92px 92px minmax(0,1fr) 32px;gap:6px;padding:7px 0;border-top:1px solid var(--line);align-items:center}
+.line:first-child{border-top:0}
+.line.k-round > input[data-lk=label]{font-weight:600}
+.line-sub{grid-column:1 / -1;display:flex;flex-direction:column;gap:6px}
+.line-sub:empty{display:none}
+.line-sub .frow{margin-top:0}
+.line-sub .warns{margin-top:0}
+.line-sub .warns:empty{display:none}
+.until-calc{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;padding-left:4px}
+.chips-row{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.chips-row .wchip{padding:3px 10px;font-size:12.5px}
+.calc{font-size:13px;color:var(--muted)}
+.calc:empty{display:none}
+.okline{font-size:12.5px;color:var(--speed);padding:2px 2px}
+details.starts{margin-top:0;border-top:0;padding-top:0}
+details.starts summary{font-size:12.5px;font-weight:500;color:var(--muted)}
+.add-lines{margin-top:10px;margin-bottom:0}
+.add-lines .wchip{padding:4px 10px;font-size:12.5px}
+.mark{display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;font-size:11px;font-weight:700;margin-left:4px;vertical-align:1px}
+.mark.error{background:var(--err-soft);color:var(--err)} .mark.should{background:var(--should-soft);color:var(--should)}
+.flash{outline:2px solid var(--brand);border-radius:8px}
+#btnAddDay{margin-top:2px}
+@media (max-width:520px){
+  .line{grid-template-columns:104px 104px minmax(0,1fr) 30px}
+  .line input[type=time]{padding:7px 5px}
+  .line > input[data-lk=label]{grid-column:1 / 4;grid-row:2}
+  .line > button[data-delline]{grid-row:1;grid-column:4}
+  .day-head{grid-template-columns:minmax(0,1fr) auto}
+  .day-head input[data-dk=title]{grid-column:1 / -1;grid-row:2}
+}
+@media print{ .mark{display:none} body:not(.print-warn) .day-warns{display:none} }
