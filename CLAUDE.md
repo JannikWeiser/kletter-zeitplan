@@ -101,7 +101,7 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
   Gleiche Wand → nacheinander (Wechsel Lead/Boulder 10 min, Speed 5 min), verschiedene Wände → parallel.
 - Startzeit nur für die erste Runde; Folgerunden **automatisch** (frühestens Ergebnis + Abstand: Lead 60 min = Regel,
   Bouldern 90 min, Speed 30 min; Quali nach Training: Ende + 15 min) oder feste Uhrzeit.
-- Halbfinale/Finale mehrerer Kategorien: Bouldern standardmäßig **parallel**, Lead **nacheinander** (umschaltbar);
+- Halbfinale/Finale mehrerer Kategorien: Bouldern **parallel auf eigenen Bouldern** (vom Auftraggeber bestätigt), Lead **nacheinander** (umschaltbar);
   nacheinander → nur die erste Kategorie hat die Vorstellung. Speed-Finals optional paarweise verschränkt.
 - `compileBlocks()` erzeugt daraus Runden je Kategorie/Phase (Start-Modi `time`, `after`, `auto`) → `computeAll()`.
 - Formate und Zeiten stehen unter „Details aus der Vorlage“ (je Phase überschreibbar, `block.phases[ph]`).
@@ -125,5 +125,4 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
 
 ## Offen / zu klären
 
-- Laufen Finals mehrerer Kategorien in einem Boulder-Block parallel (eigene Sets) oder nacheinander? Standard derzeit parallel.
 - Isolation als Zeitfenster („Iso geöffnet 13:30 bis 13:45“) statt nur Schließzeit? Bisher nur Schließzeit (Wunsch des Auftraggebers).
