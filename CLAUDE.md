@@ -75,7 +75,6 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
   (U17m/U21m, 27 Starter, 09:00: 401 B1 09:00:00 … B5 10:08:00, Call Zone 08:47:15, letzter Versuch 11:07:30).
 - Optional 2 Startgruppen (Intervall) parallel auf eigenen Bouldern.
 - Finals: 2 min Besichtigung je Boulder (World Series/Classic/One by one) bzw. 8 min gemeinsam (Intervall).
-- Abstand zwischen Runden: national nicht geregelt → international 2 h als Empfehlung (World Climbing Boulder 4.7).
 
 ## Speed
 
@@ -93,16 +92,38 @@ Beispiel Intervall: I1 A1@B1 · I2 A2@B1, A1 Pause · I3 A1@B2, A2 Pause, A3@B1.
   (z. B. H 1/8, D 1/4, H 1/4, D 1/2, H 1/2, Präsentation, D Medal Races, H Medal Races);
   die verschränkte Runde übernimmt die Startzeit der gewählten Runde; gemeinsame Präsentation.
 
+## Eingabe: Blöcke mit Vorlagen (seit 2026-10-26)
+
+- Ein **Block** = Tag + Disziplin + Kategorien, die zusammen klettern + **Vorlage** (legt Runden und Formate fest).
+  Vorlagen in `C.TEMPLATES` (calc.js): Bouldern `bwjc` (Quali Flash 3+2, Finale Intervall), `djc` (2×3), `dm`
+  (Quali/HF/World Series), `lm`; Lead `djc`, `dm`, `one`; Speed `s2`, `s4` (Training, Quali, Finale).
+- Kategorien als Tabelle: Name, Starter, Quote je Folgerunde (aus Vorlage vorbelegt), Wand/Set.
+  Gleiche Wand → nacheinander (Wechsel Lead/Boulder 10 min, Speed 5 min), verschiedene Wände → parallel.
+- Startzeit nur für die erste Runde; Folgerunden **automatisch** (frühestens Ergebnis + Abstand: Lead 60 min = Regel,
+  Bouldern 90 min, Speed 30 min; Quali nach Training: Ende + 15 min) oder feste Uhrzeit.
+- Halbfinale/Finale mehrerer Kategorien: Bouldern standardmäßig **parallel**, Lead **nacheinander** (umschaltbar);
+  nacheinander → nur die erste Kategorie hat die Vorstellung. Speed-Finals optional paarweise verschränkt.
+- `compileBlocks()` erzeugt daraus Runden je Kategorie/Phase (Start-Modi `time`, `after`, `auto`) → `computeAll()`.
+- Formate und Zeiten stehen unter „Details aus der Vorlage“ (je Phase überschreibbar, `block.phases[ph]`).
+- Speicherung `localStorage` `zeitplan.v2`; Export/Import JSON mit `blocks`.
+
 ## Ablaufplan und Bedienung
 
-- Hauptansicht: chronologische Ablauftabelle je Tag (druckbar, Warnungen optional mitdrucken).
-- Gleiche Punkte mehrerer Kategorien zur selben Zeit in einer Zeile (Aufwärmbereich, Isolation, Präsentation).
-- Öffnung Aufwärmbereich ist ein Hauptpunkt, kein Nebenpunkt, und erscheint **einmal pro Tag** (frühester Bedarf); spätere Kategorien nutzen diese Öffnung.
-- Präsentation der Finalisten nur bei Finalrunden auswählbar.
-- Vorbild für die Darstellung: Ausschreibung BWJC 2026 – nach Blöcken (Tag + Kategorien) gegliedert, je Block nur Eckzeiten (z. B. „Qualifikation 09:00 bis 13:15“).
-- Start einer Runde: Uhrzeit oder **„im Anschluss an“** eine andere Runde + Wechsel-/Reinigungszeit
-  (Besichtigung/Präsentation der Folgerunde beginnen erst nach dem Wechsel).
-- Wände/Bereiche anlegen und Runden zuordnen (Spalte „Wand“ im Plan). **Keine Belegungsprüfung** – mehrere Runden pro Wand gleichzeitig werden nicht gemeldet (Wunsch des Auftraggebers).
+- Darstellung wie die Ausschreibung BWJC 2026: je Tag „Samstag, 7. Februar: U15+ w, U17 w und U21 w“, darunter nur
+  Eckzeiten: Öffnung Warm-up, Programmpunkte, „Qualifikation 09:00 bis 12:23 Uhr“, Isolation schließt,
+  Vorstellung der Finalist*innen, Besichtigung, Finale. Mehrere Blöcke an einem Tag → Zusatz „Lead (U17 w, U17 m)“.
+- „Detail je Kategorie“ blendet die vollständige chronologische Tabelle ein; Startzeiten je Startplatz im Block.
+- Bouldern-Finale: Vorstellung → Besichtigung → Start (Besichtigung standardmäßig Dauer + 5 min vor dem Start).
+  Lead: Besichtigung → Vorstellung → Start.
+- Öffnung Aufwärmbereich erscheint **einmal pro Tag** (frühester Bedarf); spätere Kategorien nutzen diese Öffnung.
+- Präsentation der Finalisten nur bei Finalrunden.
+- Wände/Bereiche: **keine Belegungsprüfung** (Wunsch des Auftraggebers); dienen der Zuordnung parallel/nacheinander.
 - Weitere Programmpunkte: Vorschläge nur **Registration** und **Technical Meeting** + eigener Punkt; optionale Endzeit.
+- Kein Boulder-2-h-Abstand als Warnung (national nicht geregelt; reale Ausschreibung BWJC liegt darunter).
 - Warnstufen: Regelverstoß (rot) · Ruhezeit unterschritten (orange) · Ruhezeit automatisch eingefügt
   (orange gestrichelt) · Empfehlung (gelb) · Hinweis (blau).
+
+## Offen / zu klären
+
+- Laufen Finals mehrerer Kategorien in einem Boulder-Block parallel (eigene Sets) oder nacheinander? Standard derzeit parallel.
+- Isolation als Zeitfenster („Iso geöffnet 13:30 bis 13:45“) statt nur Schließzeit? Bisher nur Schließzeit (Wunsch des Auftraggebers).

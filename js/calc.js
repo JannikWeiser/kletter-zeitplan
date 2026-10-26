@@ -62,7 +62,7 @@
       });
     }
     if (discipline === 'boulder') {
-      return Object.assign(base, { setSize: 3, setSize2: 2, jamDur: 120, obsBefore: 20 },
+      return Object.assign(base, { setSize: 3, setSize2: 2, jamDur: 120, obsBefore: '' },
         boulderFormatDefaults(phase === 'final' ? 'worldseries' : 'interval', phase),
         { starters: phase === 'quali' ? 30 : phase === 'semi' ? 24 : 8 });
     }
@@ -104,26 +104,30 @@
   }
 
   /* Besichtigung + Präsentation vor dem Start; gibt frühesten Zeitpunkt auf der Wand zurück */
+  /* Besichtigung + Präsentation vor dem Start; gibt frühesten Zeitpunkt auf der Wand zurück.
+     Bouldern (wie Ausschreibung BWJC): Vorstellung → Besichtigung → Start; sonst Besichtigung → Vorstellung → Start. */
   function obsAndPres(r, sop, res, obsLen) {
+    const pres = r.presentation && r.phase === 'final';
+    const pd = num(r.presDur, 5), pause = num(r.presPause, 2);
+    const presFirst = r.discipline === 'boulder' && obsLen > 0;
     let first = sop;
-    if (r.presentation && r.phase === 'final') {
-      const pause = num(r.presPause, 2), pd = num(r.presDur, 5);
-      const ps = sop - pause - pd;
-      res.events.push({ key: 'pres', t: ps, label: `Präsentation (${dur(pd)})` });
-      if (pause < 2) res.warnings.push(W('should', `Nur ${dur(pause)} zwischen Präsentation und erstem Versuch – mindestens 2 min (Allg. 6.4 C).`, 'pres'));
-      first = Math.min(first, ps);
-    }
     if (obsLen > 0) {
-      const ob = num(r.obsBefore, 20);
+      const ob = r.obsBefore === '' || r.obsBefore == null ? obsLen + 5 : num(r.obsBefore, obsLen + 5);
       const os = sop - ob;
       res.events.push({ key: 'obs', t: os, label: `Gemeinsame Besichtigung (${dur(obsLen)})` });
       if (r.isOnsight && ob > num(r.isoClose, 30)) res.warnings.push(W('should', 'Besichtigung beginnt, bevor die Isolation schließt.', 'obs'));
       if (ob < obsLen) res.warnings.push(W('error', 'Besichtigung endet erst nach dem Start.', 'obs'));
-      if (r.presentation && r.phase === 'final') {
-        const ps = sop - num(r.presPause, 2) - num(r.presDur, 5);
-        if (os + obsLen > ps) res.warnings.push(W('should', 'Besichtigung überschneidet sich mit der Präsentation.', 'obs'));
-      }
+      if (pres && presFirst) {
+        res.events.push({ key: 'pres', t: os - pd, label: `Vorstellung der Finalist*innen (${dur(pd)})` });
+        first = os - pd;
+      } else if (pres && os + obsLen > sop - pause - pd) res.warnings.push(W('should', 'Besichtigung überschneidet sich mit der Präsentation.', 'obs'));
       first = Math.min(first, os);
+    }
+    if (pres && !presFirst) {
+      const ps = sop - pause - pd;
+      res.events.push({ key: 'pres', t: ps, label: `Vorstellung der Finalist*innen (${dur(pd)})` });
+      if (pause < 2) res.warnings.push(W('should', `Nur ${dur(pause)} zwischen Präsentation und erstem Versuch – mindestens 2 min (Allg. 6.4 C).`, 'pres'));
+      first = Math.min(first, ps);
     }
     return first;
   }
@@ -525,6 +529,11 @@
           sop = ref.end + gap + Math.max(0, lead);
           afterNote = { t: ref.end, gap, ref };
         } else sop = null;
+      } else if (r.startMode === 'auto') {
+        // frühestens nach Ergebnis bzw. Ende der angegebenen Runden + Abstand (z. B. Finale nach der Quali)
+        const refs = (r.autoRefs || []).map((x) => (byId[x] ? resolve(x) : null)).filter((x) => x && x.end != null);
+        sop = refs.length ? Math.max.apply(null, refs.map((x) => (r.autoBase === 'end' ? x.end : x.result))) + num(r.autoGap, 60) : null;
+        if (sop != null && r.autoRound) sop = Math.ceil(sop / r.autoRound - 1e-9) * r.autoRound;
       }
       let res;
       if (partner) { const pr = computePaired(r, partner, sop); res = pr[0]; out[partner.id] = pr[1]; }
@@ -532,7 +541,7 @@
       if (afterNote) {
         res.events.push({ key: 'change', t: afterNote.t, label: `Wechsel / Reinigung (${dur(afterNote.gap)}) nach ${label(afterNote.ref.round)}`, minor: true });
         res.afterOf = afterNote.ref.id;
-      } else if (r.startMode === 'after') res.warnings.push(W('error', 'Vorherige Runde für „im Anschluss an“ fehlt oder hat keine Startzeit.'));
+      } else if (r.startMode === 'after' || r.startMode === 'auto') { if (sop == null) res.warnings.push(W('error', 'Vorherige Runde fehlt oder hat keine Startzeit.')); }
       [res].concat(partner ? [out[partner.id]] : []).forEach((x) => {
         const rr = x.round;
         if (rr._quotaWarn) x.warnings.push(W('should', `Wettkampfbaum ${rr._bracket} ist größer als die Quote aus der Quali (${rr._quotaWarn}, Speed 2.3).`));
@@ -559,8 +568,6 @@
         const gap = c.sop - p.result;
         if (gap < 0) c.warnings.push(W('error', `Start vor dem voraussichtlichen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}).`));
         else if (c.round.discipline === 'lead' && gap < 60) c.warnings.push(W('error', `Nur ${dur(gap)} zwischen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}) und Start – mindestens 1 Stunde (Lead 4.5).`));
-        // National nicht geregelt → international: 2 h (World Climbing Event Regulations, Annex C 4.7)
-        else if (c.round.discipline === 'boulder' && gap < 120) c.warnings.push(W('should', `Nur ${dur(gap)} zwischen Ergebnis der ${PHASES[p.round.phase]} (${fmt(p.result)}) und Start – international sind 2 Stunden vorgesehen (World Climbing, Boulder 4.7).`));
       }
     });
     // Aufwärmbereich öffnet einmal pro Tag (frühester Bedarf) und bleibt offen – spätere Kategorien nutzen diese Öffnung
@@ -579,10 +586,113 @@
     return results;
   }
 
+  /* ---------- Vorlagen ----------
+     Eine Vorlage legt die Runden eines Blocks und deren Format fest; alles ist im Block änderbar. */
+  const TEMPLATES = {
+    boulder: {
+      bwjc: { label: 'Jugendcup BW: Quali Flash 3+2, Finale Intervall', phases: ['quali', 'final'], quota: { final: 8 },
+        set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 2, interval: 4, sight: 'flash', obsMode: 'none' },
+          final: { boulderFormat: 'finInterval', boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' } } },
+      djc: { label: 'Deutscher Jugendcup: Quali Flash 2×3, Finale Intervall', phases: ['quali', 'final'], quota: { final: 10 },
+        set: { quali: { boulderFormat: 'flash2sets', setSize: 3, setSize2: 3, interval: 4, sight: 'flash', obsMode: 'none' },
+          final: { boulderFormat: 'finInterval', boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' } } },
+      dm: { label: 'DM: Quali, Halbfinale, Finale World Series', phases: ['quali', 'semi', 'final'], quota: { semi: 24, final: 8 },
+        set: { quali: { boulderFormat: 'interval', boulders: 5, interval: 5, sight: 'onsight', obsMode: 'none' },
+          semi: { boulderFormat: 'interval', boulders: 4, interval: 5, sight: 'onsight', obsMode: 'none' },
+          final: { boulderFormat: 'worldseries', boulders: 4, rotation: 5, sight: 'onsight', obsMode: 'per' } } },
+      lm: { label: 'Quali Intervall, Finale Intervall', phases: ['quali', 'final'], quota: { final: 8 },
+        set: { quali: { boulderFormat: 'interval', boulders: 5, interval: 4, sight: 'flash', obsMode: 'none' },
+          final: { boulderFormat: 'finInterval', boulders: 4, interval: 4, sight: 'onsight', obsMode: 'joint' } } },
+    },
+    lead: {
+      djc: { label: 'Jugendcup: Quali 2 Routen Flash, Finale On Sight', phases: ['quali', 'final'], quota: { final: 10 },
+        set: { quali: { leadFormat: 'flash2' }, final: { leadFormat: 'onsight' } } },
+      dm: { label: 'DM: Quali 2 Routen, Halbfinale, Finale', phases: ['quali', 'semi', 'final'], quota: { semi: 24, final: 8 },
+        set: { quali: { leadFormat: 'flash2' }, semi: { leadFormat: 'onsight' }, final: { leadFormat: 'onsight' } } },
+      one: { label: 'Quali 1 Route Flash, Finale On Sight', phases: ['quali', 'final'], quota: { final: 8 },
+        set: { quali: { leadFormat: 'flash1' }, final: { leadFormat: 'onsight' } } },
+    },
+    speed: {
+      s2: { label: 'Speed 2: Training, Quali, Finale', phases: ['training', 'quali', 'final'], quota: {},
+        set: { training: { lanes: 2 }, quali: { lanes: 2 }, final: { lanes: 2, bracket: 'auto' } } },
+      s4: { label: 'Speed 4: Training, Quali, Finale', phases: ['training', 'quali', 'final'], quota: {},
+        set: { training: { lanes: 4, trainDur: 30 }, quali: { lanes: 4 }, final: { lanes: 4, bracket: 'auto' } } },
+    },
+  };
+  /* Standard-Abstand zur vorherigen Runde (ab Ergebnis) und Wechsel zwischen Kategorien auf derselben Wand */
+  const NEXT_GAP = { lead: 60, boulder: 90, speed: 30 };
+  const LANE_GAP = { lead: 10, boulder: 10, speed: 5 };
+
+  function blockPhaseSettings(discipline, templateKey, phase) {
+    const t = (TEMPLATES[discipline] || {})[templateKey];
+    return Object.assign(defaults(discipline, phase), (t && t.set[phase]) || {});
+  }
+
+  /* Blöcke → einzelne Runden je Kategorie und Phase (für computeAll) */
+  function compileBlocks(comp) {
+    const rounds = [];
+    (comp.blocks || []).forEach((b) => {
+      const t = (TEMPLATES[b.discipline] || {})[b.template];
+      if (!t) return;
+      const cats = (b.cats || []).filter((c) => c.name || num(c.starters, 0) > 0);
+      if (!cats.length) return;
+      const day = b.day || comp.date;
+      let prev = null; // Runden-IDs der vorherigen Phase
+      t.phases.forEach((ph, pi) => {
+        const set = Object.assign(blockPhaseSettings(b.discipline, b.template, ph), (b.phases || {})[ph] || {});
+        const nx = (b.next || {})[ph] || {};
+        const base = { discipline: b.discipline, phase: ph, day, block: b.id, warmup: set.warmup };
+        const fixedStart = pi === 0 ? b.start : (nx.mode === 'time' ? nx.time : null);
+        const autoStart = (refs, gapBase) => (fixedStart ? { startMode: 'time', start: fixedStart }
+          : { startMode: 'auto', autoRefs: refs, autoBase: gapBase, autoGap: num(nx.gap, gapBase === 'end' ? 15 : NEXT_GAP[b.discipline]), autoRound: 1 });
+        const ids = [];
+        if (ph === 'training') {
+          const id = `${b.id}|all|${ph}`;
+          rounds.push(Object.assign({}, set, base, { id, category: cats.map((c) => c.name).join(', '),
+            starters: cats.reduce((a, c) => a + Math.round(num(c.starters, 0)), 0),
+            walls: [...new Set(cats.map((c) => c.lane).filter(Boolean))], startMode: 'time', start: b.start }));
+          ids.push(id);
+        } else {
+          const first = pi === 0 || (prev && prev.training);
+          const layout = first ? 'lanes' : b.discipline === 'speed' ? 'seq' : (b.layout || (b.discipline === 'boulder' ? 'par' : 'seq'));
+          const lastInLane = {};
+          let lastSeq = null;
+          cats.forEach((c, ci) => {
+            const id = `${b.id}|${c.id}|${ph}`;
+            const starters = pi === 0 || ph === 'quali' ? Math.round(num(c.starters, 0)) : Math.round(num(c[ph], (t.quota || {})[ph] || 8));
+            const r = Object.assign({}, set, base, { id, category: c.name || 'Kategorie', starters, walls: c.lane ? [c.lane] : [] });
+            const laneKey = c.lane || '_';
+            if (layout === 'lanes') {
+              if (lastInLane[laneKey]) Object.assign(r, { startMode: 'after', afterId: lastInLane[laneKey], afterGap: num(b.laneGap, LANE_GAP[b.discipline]) });
+              else if (prev && prev.training) Object.assign(r, autoStart(prev.ids, 'end'));
+              else Object.assign(r, { startMode: 'time', start: b.start });
+              lastInLane[laneKey] = id;
+            } else if (layout === 'seq' && lastSeq) {
+              Object.assign(r, { startMode: 'after', afterId: lastSeq, afterGap: num(b.laneGap, LANE_GAP[b.discipline]) });
+              if (ph === 'final' && b.discipline !== 'speed') r.presentation = false; // gemeinsame Vorstellung vor der ersten Kategorie
+            } else Object.assign(r, autoStart(prev ? prev.ids : [], 'result'));
+            // Speed: Finals zweier Kategorien verschränken
+            if (b.discipline === 'speed' && ph === 'final' && b.pairFinals && ci % 2 === 1) {
+              r.pairWith = ids[ids.length - 1];
+              delete r.startMode; r.start = '';
+            } else if (b.discipline === 'speed' && ph === 'final' && b.pairFinals && layout === 'seq' && lastSeq && ci % 2 === 0) {
+              r.afterId = ids[ids.length - 1]; // nach dem vorherigen Paar
+            }
+            if (!(b.discipline === 'speed' && ph === 'final' && b.pairFinals && ci % 2 === 1)) lastSeq = id;
+            rounds.push(r);
+            ids.push(id);
+          });
+        }
+        prev = { ids, training: ph === 'training' };
+      });
+    });
+    return rounds;
+  }
+
   function label(r) {
     return `${DISC[r.discipline] || ''} ${r.category || ''} ${PHASES[r.phase] || ''}`.replace(/\s+/g, ' ').trim();
   }
 
-  const api = { computeAll, defaults, boulderFormatDefaults, BOULDER_FORMATS, toMin, fmt, dur, label, PHASES, PHASE_ORDER, DISC };
+  const api = { TEMPLATES, compileBlocks, blockPhaseSettings, NEXT_GAP, LANE_GAP, computeAll, defaults, boulderFormatDefaults, BOULDER_FORMATS, toMin, fmt, dur, label, PHASES, PHASE_ORDER, DISC };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(this);

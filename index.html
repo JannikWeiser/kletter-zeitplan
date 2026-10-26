@@ -30,26 +30,27 @@
     <div class="card">
       <h2>Wettkampf</h2>
       <div class="grid2">
-        <label>Name<input type="text" id="compName" placeholder="Landesmeisterschaft Lead/Boulder 2027"></label>
-        <label>Datum (Standard)<input type="date" id="compDate"></label>
+        <label>Name<input type="text" id="compName" placeholder="BW Jugendcup Bouldern 2026"></label>
+        <label>Erster Tag<input type="date" id="compDate"></label>
       </div>
       <div class="walls">
         <div class="label-row"><span>Wände / Bereiche</span><span class="muted small">Erscheinen im Ablaufplan</span></div>
         <div id="wallList" class="chips"></div>
-        <form id="wallForm" class="inline-form"><input type="text" id="wallInput" placeholder="z. B. Lead-Wand links"><button type="submit">Hinzufügen</button></form>
+        <form id="wallForm" class="inline-form"><input type="text" id="wallInput" placeholder="z. B. Boulder Set 1"><button type="submit">Hinzufügen</button></form>
       </div>
     </div>
 
     <div class="rounds-head">
-      <h2>Runden</h2>
+      <h2>Blöcke</h2>
       <div class="add-group">
-        <button type="button" data-add="lead" class="tag-lead">+ Lead</button>
-        <button type="button" data-add="boulder" class="tag-boulder">+ Bouldern</button>
-        <button type="button" data-add="speed" class="tag-speed">+ Speed</button>
+        <button type="button" data-addblock="lead" class="tag-lead">+ Lead</button>
+        <button type="button" data-addblock="boulder" class="tag-boulder">+ Bouldern</button>
+        <button type="button" data-addblock="speed" class="tag-speed">+ Speed</button>
       </div>
     </div>
-    <div id="roundList"></div>
-    <p id="emptyRounds" class="empty muted">Noch keine Runde angelegt. Füge oben eine Lead-, Boulder- oder Speed-Runde hinzu – oder lade das Beispiel.</p>
+    <p class="muted small" style="margin:-4px 0 10px">Ein Block = ein Tag, eine Disziplin, die Kategorien, die zusammen klettern. Die Vorlage legt Runden und Formate fest.</p>
+    <div id="blockList"></div>
+    <p id="emptyBlocks" class="empty muted">Noch kein Block angelegt. Füge oben einen Lead-, Boulder- oder Speed-Block hinzu – oder lade das Beispiel.</p>
 
     <div class="card" id="itemsCard">
       <h2>Weitere Programmpunkte</h2>
@@ -68,7 +69,7 @@
         </div>
         <div class="switches no-print">
           <button type="button" class="mini" data-additem="">+ Programmpunkt</button>
-          <label class="switch"><input type="checkbox" id="showMinor" checked> Nebenpunkte</label>
+          <label class="switch"><input type="checkbox" id="showDetail"> Detail je Kategorie</label>
           <label class="switch"><input type="checkbox" id="printWarn"> Warnungen mitdrucken</label>
         </div>
       </div>
